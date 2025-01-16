@@ -7,17 +7,19 @@
 
 G_BEGIN_DECLS
 
+
 #define GST_TYPE_ANALYTICS_AGGREGATOR (gst_analytics_aggregator_get_type())
-G_DECLARE_FINAL_TYPE(GstAnalyticsAggregator, gst_analytics_aggregator, GST, ANALYTICS_AGGREGATOR, GstAggregator)
+G_DECLARE_FINAL_TYPE(GstAnalyticsAggregator, gst_analytics_aggregator, GST, ANALYTICS_AGGREGATOR, GstAggregator);
 
 struct _GstAnalyticsAggregator {
-    GstAggregator parent_instance;
-
+    GstAggregator parent;
     GstPad *video_sink_pad;
     GList *dynamic_sink_pads;
     GstPad *src_pad;
+};
 
-    GstVideoInfo video_info;
+struct _GstAnalyticsAggregatorClass {
+    GstAggregatorClass parent_class;
 };
 
 GType gst_analytics_aggregator_get_type(void);

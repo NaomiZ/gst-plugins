@@ -7,10 +7,13 @@ project(gstanalyticsaggregator VERSION 1.0)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED gstreamer-1.0)
 
+# Add DeepStream SDK include directory
+include_directories(/opt/nvidia/deepstream/deepstream/sources/includes)
+
 # Add the source files
 set(SOURCES
-    src/gstanalyticsaggregator.cpp
-    src/gstanalyticsaggregator.h
+    gstanalyticsaggregator.cpp
+    gstanalyticsaggregator.h
 )
 
 # Add the executable
@@ -24,5 +27,5 @@ target_link_libraries(gstanalyticsaggregator ${GST_LIBRARIES})
 
 # Install the library
 install(TARGETS gstanalyticsaggregator
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib)
+LIBRARY DESTINATION lib
+ARCHIVE DESTINATION lib)
