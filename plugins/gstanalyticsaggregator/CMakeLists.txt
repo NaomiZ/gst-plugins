@@ -5,7 +5,7 @@ project(gstanalyticsaggregator VERSION 1.0)
 
 # Find GStreamer package
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GST REQUIRED gstreamer-1.0)
+pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-base-1.0)
 
 # Add DeepStream SDK include directory
 include_directories(/opt/nvidia/deepstream/deepstream/sources/includes)

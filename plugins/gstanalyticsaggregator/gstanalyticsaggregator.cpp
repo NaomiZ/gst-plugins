@@ -57,14 +57,17 @@ static void gst_analytics_aggregator_class_init(GstAnalyticsAggregatorClass *kla
     gst_element_class_add_static_pad_template(element_class, &gst_analytics_aggregator_video_sink_template);
     gst_element_class_add_static_pad_template(element_class, &gst_analytics_aggregator_meta_sink_template);
     gst_element_class_add_static_pad_template(element_class, &gst_analytics_aggregator_src_template);
-
+    g_print("gst_analytics_aggregator_class_init\n");
 }
 
 static void gst_analytics_aggregator_init(GstAnalyticsAggregator *self) {
+    g_print("gst_analytics_aggregator_init\n");
     self->video_sink_pad = gst_pad_new_from_static_template(&gst_analytics_aggregator_video_sink_template, "video_sink");
     gst_element_add_pad(GST_ELEMENT(self), self->video_sink_pad);
-    self->src_pad = gst_pad_new_from_static_template(&gst_analytics_aggregator_video_sink_template, "src");
-    gst_element_add_pad(GST_ELEMENT(self), self->src_pad);
+
+    self->src_pad = gst_pad_new_from_static_template(&gst_analytics_aggregator_src_template, "src");
+    //GstAggrigator (the element parent) has already added the src pad
+    
     self->dynamic_sink_pads = NULL;
 }
 
