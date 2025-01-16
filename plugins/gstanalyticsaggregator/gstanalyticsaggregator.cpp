@@ -2,6 +2,7 @@
 #include <gst/video/video.h>
 #include <gst/base/gstaggregator.h>
 #include <nvdsmeta.h>
+#include <gstnvdsmeta.h>
 #include "gstanalyticsaggregator.h"
 
 #define PLUGIN_NAME "analyticsaggregator"
@@ -77,7 +78,46 @@ static gboolean gst_analytics_aggregator_sink_event(GstAggregator *agg, GstAggre
 }
 
 static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboolean timeout) {
-    // Implement aggregation logic here
+    GstBuffer *outbuf = NULL;
+    GstBuffer *inbuf = NULL;
+    GstAggregatorPad *pad;
+
+    GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(agg);
+    outbuf = gst_aggregator_pad_pop_buffer(GST_AGGREGATOR_PAD(self->video_sink_pad));
+    if (!outbuf) {
+        GST_ERROR_OBJECT(self, "Failed to pop buffer from video sink pad");
+        return GST_FLOW_ERROR;
+    }
+
+    GList *walk;
+
+    for (walk = self->dynamic_sink_pads; walk; walk = g_list_next(walk)) {
+        pad = GST_AGGREGATOR_PAD(walk->data);
+        inbuf = gst_aggregator_pad_pop_buffer(pad);
+        if (inbuf) {
+            NvDsMetaList *l;
+            NvDsBatchMeta *batch_meta = gst_buffer_get_nvds_batch_meta(inbuf);
+            if (batch_meta) {
+                for (l = batch_meta->frame_meta_list; l != NULL; l = l->next) {
+                    NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)(l->data);
+                    if (frame_meta) {
+                        NvDsUserMetaList *user_meta_list = frame_meta->frame_user_meta_list;
+                        while (user_meta_list) {
+                            NvDsUserMeta *user_meta = (NvDsUserMeta *)(user_meta_list->data);
+                            if (user_meta) {
+                                gst_buffer_add_nvds_meta(outbuf, user_meta, NULL, NULL, NULL);
+                            }
+                            user_meta_list = user_meta_list->next;
+                        }
+                    }
+                }
+            }
+            gst_buffer_unref(inbuf);
+        }
+    }
+
+    gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
+    return GST_FLOW_OK;
     return GST_FLOW_OK;
 }
 
