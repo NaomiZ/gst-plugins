@@ -26,7 +26,7 @@ add_library(gstanalyticsaggregator SHARED ${SOURCES})
 target_include_directories(gstanalyticsaggregator PRIVATE ${GST_INCLUDE_DIRS})
 
 # Link libraries
-target_link_libraries(gstanalyticsaggregator ${GST_LIBRARIES} nvds_meta)
+target_link_libraries(gstanalyticsaggregator ${GST_LIBRARIES} nvds_meta nvdsgst_meta)
 
 # Install the library
 install(TARGETS gstanalyticsaggregator
