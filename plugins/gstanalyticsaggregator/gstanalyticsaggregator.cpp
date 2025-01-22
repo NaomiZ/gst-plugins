@@ -15,7 +15,7 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
 
 #define GST_CAPS_FEATURE_MEMORY_NVMM "memory:NVMM"
 
-static GstStaticPadTemplate gst_analytics_aggregator_video_sink_template =
+static GstStaticPadTemplate video_sink_factory =
     GST_STATIC_PAD_TEMPLATE ("video_sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
@@ -23,7 +23,7 @@ static GstStaticPadTemplate gst_analytics_aggregator_video_sink_template =
         (GST_CAPS_FEATURE_MEMORY_NVMM,
             "{ NV12, RGBA, I420 }")));
 
-static GstStaticPadTemplate gst_analytics_aggregator_meta_sink_template =
+static GstStaticPadTemplate meta_sink_factory =
     GST_STATIC_PAD_TEMPLATE ("sink_%u",
     GST_PAD_SINK,
     GST_PAD_REQUEST,
@@ -31,7 +31,7 @@ static GstStaticPadTemplate gst_analytics_aggregator_meta_sink_template =
         (GST_CAPS_FEATURE_MEMORY_NVMM,
             "{ NV12, RGBA, I420 }")));
 
-static GstStaticPadTemplate gst_analytics_aggregator_src_template =
+static GstStaticPadTemplate src_factory =
     GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
@@ -55,18 +55,18 @@ static void gst_analytics_aggregator_class_init(GstAnalyticsAggregatorClass *kla
     aggregator_class->aggregate = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_aggregate);
     
     // Add pad templates for the video sink, dynamic sink, and source pads
-    gst_element_class_add_static_pad_template(element_class, &gst_analytics_aggregator_video_sink_template);
-    gst_element_class_add_static_pad_template(element_class, &gst_analytics_aggregator_meta_sink_template);
-    gst_element_class_add_static_pad_template(element_class, &gst_analytics_aggregator_src_template);
+    gst_element_class_add_static_pad_template(element_class, &video_sink_factory);
+    gst_element_class_add_static_pad_template(element_class, &meta_sink_factory);
+    gst_element_class_add_static_pad_template(element_class, &src_factory);
     g_print("gst_analytics_aggregator_class_init\n");
 }
 
 static void gst_analytics_aggregator_init(GstAnalyticsAggregator *self) {
     g_print("gst_analytics_aggregator_init\n");
-    self->video_sink_pad = gst_pad_new_from_static_template(&gst_analytics_aggregator_video_sink_template, "video_sink");
+    self->video_sink_pad = gst_pad_new_from_static_template(&video_sink_factory, "video_sink");
     gst_element_add_pad(GST_ELEMENT(self), self->video_sink_pad);
 
-    self->src_pad = gst_pad_new_from_static_template(&gst_analytics_aggregator_src_template, "src");
+    self->src_pad = gst_pad_new_from_static_template(&src_factory, "src");
     //GstAggrigator (the element parent) has already added the src pad
     
     self->dynamic_sink_pads = NULL;
@@ -74,6 +74,23 @@ static void gst_analytics_aggregator_init(GstAnalyticsAggregator *self) {
 
 static gboolean gst_analytics_aggregator_sink_event(GstAggregator *agg, GstAggregatorPad *pad, GstEvent *event) {
     // Implement event handling logic here
+    switch (GST_EVENT_TYPE(event)) {
+        case GST_EVENT_EOS:
+            // Handle end-of-stream event
+            GST_DEBUG_OBJECT(agg, "Received EOS event");
+            break;
+        case GST_EVENT_FLUSH_START:
+            // Handle flush start event
+            GST_DEBUG_OBJECT(agg, "Received FLUSH_START event");
+            break;
+        case GST_EVENT_FLUSH_STOP:
+            // Handle flush stop event
+            GST_DEBUG_OBJECT(agg, "Received FLUSH_STOP event");
+            break;
+        default:
+            // Pass other events to the default handler
+            break;
+    }
     return GST_AGGREGATOR_CLASS(gst_analytics_aggregator_parent_class)->sink_event(agg, pad, event);
 }
 
@@ -93,26 +110,32 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
 
     for (walk = self->dynamic_sink_pads; walk; walk = g_list_next(walk)) {
         pad = GST_AGGREGATOR_PAD(walk->data);
-        inbuf = gst_aggregator_pad_pop_buffer(pad);
-        if (inbuf) {
-            NvDsMetaList *l;
-            NvDsBatchMeta *batch_meta = gst_buffer_get_nvds_batch_meta(inbuf);
-            if (batch_meta) {
-                for (l = batch_meta->frame_meta_list; l != NULL; l = l->next) {
-                    NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)(l->data);
-                    if (frame_meta) {
-                        NvDsUserMetaList *user_meta_list = frame_meta->frame_user_meta_list;
-                        while (user_meta_list) {
-                            NvDsUserMeta *user_meta = (NvDsUserMeta *)(user_meta_list->data);
-                            if (user_meta) {
-                                gst_buffer_add_nvds_meta(outbuf, user_meta, NULL, NULL, NULL);
+        if (pad) {
+            inbuf = gst_aggregator_pad_pop_buffer(pad);
+            if (inbuf) {
+                NvDsMetaList *l;
+                NvDsBatchMeta *batch_meta = gst_buffer_get_nvds_batch_meta(inbuf);
+                if (batch_meta) {
+                    for (l = batch_meta->frame_meta_list; l != NULL; l = l->next) {
+                        NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)(l->data);
+                        if (frame_meta) {
+                            NvDsUserMetaList *user_meta_list = frame_meta->frame_user_meta_list;
+                            while (user_meta_list) {
+                                NvDsUserMeta *user_meta = (NvDsUserMeta *)(user_meta_list->data);
+                                if (user_meta) {
+                                    gst_buffer_add_nvds_meta(outbuf, user_meta, NULL, NULL, NULL);
+                                }
+                                user_meta_list = user_meta_list->next;
                             }
-                            user_meta_list = user_meta_list->next;
                         }
                     }
                 }
+                gst_buffer_unref(inbuf);
             }
-            gst_buffer_unref(inbuf);
+        }
+        else {
+            GST_WARNING_OBJECT(self, "Pad is null: %s", GST_PAD_NAME(pad));
+            self->dynamic_sink_pads = g_list_remove(self->dynamic_sink_pads, pad);
         }
     }
 
