@@ -55,20 +55,21 @@ static void gst_analytics_aggregator_class_init(GstAnalyticsAggregatorClass *kla
     aggregator_class->aggregate = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_aggregate);
     
     // Add pad templates for the video sink, dynamic sink, and source pads
-    gst_element_class_add_static_pad_template(element_class, &video_sink_factory);
-    gst_element_class_add_static_pad_template(element_class, &meta_sink_factory);
-    gst_element_class_add_static_pad_template(element_class, &src_factory);
+    gst_element_class_add_static_pad_template_with_gtype(element_class, &video_sink_factory, GST_TYPE_AGGREGATOR_PAD);
+    gst_element_class_add_static_pad_template_with_gtype(element_class, &meta_sink_factory, GST_TYPE_AGGREGATOR_PAD);
+    gst_element_class_add_static_pad_template_with_gtype(element_class, &src_factory, GST_TYPE_AGGREGATOR_PAD);
+
     g_print("gst_analytics_aggregator_class_init\n");
 }
 
 static void gst_analytics_aggregator_init(GstAnalyticsAggregator *self) {
     g_print("gst_analytics_aggregator_init\n");
-    self->video_sink_pad = gst_pad_new_from_static_template(&video_sink_factory, "video_sink");
-    gst_element_add_pad(GST_ELEMENT(self), self->video_sink_pad);
+    self->video_sink_pad = GST_AGGREGATOR_PAD(g_object_new(GST_TYPE_AGGREGATOR_PAD,
+                                        "name", "video_sink",
+                                        "direction", GST_PAD_SINK, NULL));
+    // gst_aggregator_add_pad(GST_AGGREGATOR(self), self->video_sink_pad);
+    g_print("Pad type: %s\n", G_OBJECT_TYPE_NAME(self->video_sink_pad));
 
-    self->src_pad = gst_pad_new_from_static_template(&src_factory, "src");
-    //GstAggrigator (the element parent) has already added the src pad
-    
     self->dynamic_sink_pads = NULL;
 }
 

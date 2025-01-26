@@ -13,9 +13,9 @@ G_DECLARE_FINAL_TYPE(GstAnalyticsAggregator, gst_analytics_aggregator, GST, ANAL
 
 struct _GstAnalyticsAggregator {
     GstAggregator parent;
-    GstPad *video_sink_pad;
+    GstAggregatorPad *video_sink_pad;
     GList *dynamic_sink_pads;
-    GstPad *src_pad;
+    GstAggregatorPad *src_pad;
 };
 
 struct _GstAnalyticsAggregatorClass {
