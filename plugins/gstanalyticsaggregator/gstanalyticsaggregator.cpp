@@ -67,8 +67,7 @@ static void gst_analytics_aggregator_init(GstAnalyticsAggregator *self) {
     self->video_sink_pad = GST_AGGREGATOR_PAD(g_object_new(GST_TYPE_AGGREGATOR_PAD,
                                         "name", "video_sink",
                                         "direction", GST_PAD_SINK, NULL));
-    // gst_aggregator_add_pad(GST_AGGREGATOR(self), self->video_sink_pad);
-    g_print("Pad type: %s\n", G_OBJECT_TYPE_NAME(self->video_sink_pad));
+    gst_element_add_pad(GST_ELEMENT(self), GST_PAD(self->video_sink_pad));
 
     self->dynamic_sink_pads = NULL;
 }
