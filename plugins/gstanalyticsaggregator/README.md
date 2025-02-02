@@ -44,6 +44,7 @@ make
     agg.sink_0::metadata_sink \
     agg.src ! fakesink
 
+    gst-launch-1.0 videotestsrc ! nvvidconv ! analyticsaggregator ! fakesink
 ### Error Handling
 
 #### Mismatched Capabilities:

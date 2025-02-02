@@ -4,6 +4,7 @@
 #include <nvdsmeta.h>
 #include <gstnvdsmeta.h>
 #include "gstanalyticsaggregator.h"
+#include <stdio.h>
 
 #define PLUGIN_NAME "analyticsaggregator"
 
@@ -146,35 +147,29 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
 
 static GstAggregatorPad *my_aggregator_create_new_pad(GstAggregator *agg, GstPadDirection direction, const gchar *name) {
     GstElementClass *klass = GST_ELEMENT_GET_CLASS(agg);
-    GstStaticPadTemplate *pad_template_static;
     GstPadTemplate *pad_template;
     GstAggregatorPad *new_pad;
+    guint stream_index;
 
     // Ensure direction is correct
-    if (direction != GST_PAD_SINK) {
-        GST_ERROR_OBJECT(agg, "Only sink pads can be created dynamically.");
+    if (direction != GST_PAD_SINK || sscanf (name, meta_sink_factory.name_template, &stream_index) < 1) {
+        GST_ERROR_OBJECT(agg, "Only sink_\%u pads can be created dynamically.");
         return NULL;
     }
 
     // Get the pad template by name
-    pad_template_static = gst_element_class_get_pad_template(klass, name);
-    if (!pad_template_static) {
+    pad_template = gst_element_class_get_pad_template(klass, name);
+    if (!pad_template) {
         GST_ERROR_OBJECT(agg, "No template found for pad name '%s'", name);
         return NULL;
     }
 
     // Create the dynamic pad from the template
-    pad_template = gst_static_pad_template_get(pad_template_static);
-    if (!pad_template) {
-        GST_ERROR_OBJECT(agg, "Failed to get pad template for '%s'", name);
-        return NULL;
-    }
-
     // Create a new GstAggregatorPad
-    new_pad = g_object_new(GST_TYPE_AGGREGATOR_PAD,
+    new_pad = GST_AGGREGATOR_PAD(g_object_new(GST_TYPE_AGGREGATOR_PAD,
                            "name", name,
                            "direction", direction,
-                           NULL);
+                           NULL));
 
     // Add the pad to the aggregator
     if (!gst_element_add_pad(GST_ELEMENT(agg), GST_PAD(new_pad))) {
