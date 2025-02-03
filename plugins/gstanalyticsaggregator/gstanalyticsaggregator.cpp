@@ -11,6 +11,7 @@
 G_DEFINE_TYPE(GstAnalyticsAggregator, gst_analytics_aggregator, GST_TYPE_AGGREGATOR);
 
 static GstCaps *gst_analytics_aggregator_get_caps(GstAggregator *agg, GstPad *pad, GstCaps *filter);
+static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *agg, GstPadTemplate *templ, const gchar *name, const GstCaps *caps);
 static gboolean gst_analytics_aggregator_sink_event(GstAggregator *agg, GstAggregatorPad *pad, GstEvent *event);
 static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboolean timeout);
 
@@ -54,6 +55,7 @@ static void gst_analytics_aggregator_class_init(GstAnalyticsAggregatorClass *kla
     
     aggregator_class->sink_event = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_sink_event);
     aggregator_class->aggregate = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_aggregate);
+    aggregator_class->create_new_pad = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_create_new_pad);
     
     // Add pad templates for the video sink, dynamic sink, and source pads
     gst_element_class_add_static_pad_template_with_gtype(element_class, &video_sink_factory, GST_TYPE_AGGREGATOR_PAD);
@@ -145,20 +147,20 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     return GST_FLOW_OK;
 }
 
-static GstAggregatorPad *my_aggregator_create_new_pad(GstAggregator *agg, GstPadDirection direction, const gchar *name) {
+static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *agg, GstPadTemplate *templ, const gchar *name, const GstCaps  * caps) {
     GstElementClass *klass = GST_ELEMENT_GET_CLASS(agg);
     GstPadTemplate *pad_template;
     GstAggregatorPad *new_pad;
     guint stream_index;
 
     // Ensure direction is correct
-    if (direction != GST_PAD_SINK || sscanf (name, meta_sink_factory.name_template, &stream_index) < 1) {
+    if (templ->direction != GST_PAD_SINK || sscanf (name, meta_sink_factory.name_template, &stream_index) < 1) {
         GST_ERROR_OBJECT(agg, "Only sink_\%u pads can be created dynamically.");
         return NULL;
     }
 
     // Get the pad template by name
-    pad_template = gst_element_class_get_pad_template(klass, name);
+    pad_template = gst_element_class_get_pad_template(klass, templ->name_template);
     if (!pad_template) {
         GST_ERROR_OBJECT(agg, "No template found for pad name '%s'", name);
         return NULL;
@@ -168,16 +170,13 @@ static GstAggregatorPad *my_aggregator_create_new_pad(GstAggregator *agg, GstPad
     // Create a new GstAggregatorPad
     new_pad = GST_AGGREGATOR_PAD(g_object_new(GST_TYPE_AGGREGATOR_PAD,
                            "name", name,
-                           "direction", direction,
+                           "direction", templ->direction,
                            NULL));
 
-    // Add the pad to the aggregator
-    if (!gst_element_add_pad(GST_ELEMENT(agg), GST_PAD(new_pad))) {
-        GST_ERROR_OBJECT(agg, "Failed to add pad '%s' to the aggregator.", name);
-        g_object_unref(new_pad);
-        return NULL;
-    }
-
+    // Add the new pad to the list of dynamic sink pads
+    GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(agg);
+    self->dynamic_sink_pads = g_list_append(self->dynamic_sink_pads, new_pad);
+    
     GST_DEBUG_OBJECT(agg, "Created new pad: %s", name);
     return new_pad;
 }

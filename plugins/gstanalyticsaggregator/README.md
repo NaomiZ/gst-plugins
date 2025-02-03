@@ -45,6 +45,7 @@ make
     agg.src ! fakesink
 
     gst-launch-1.0 videotestsrc ! nvvidconv ! analyticsaggregator ! fakesink
+    gst-launch-1.0 videotestsrc ! nvvidconv ! tee name=t t. ! agg.video_sink analyticsaggregator name=agg ! fakesink t. ! agg.sink_0
 ### Error Handling
 
 #### Mismatched Capabilities:
