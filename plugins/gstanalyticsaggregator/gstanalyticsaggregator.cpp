@@ -101,6 +101,9 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     GstBuffer *outbuf = NULL;
     GstBuffer *inbuf = NULL;
     GstAggregatorPad *pad;
+    GstClockTime pts = GST_CLOCK_TIME_NONE;
+    GstClockTime dts = GST_CLOCK_TIME_NONE;
+    GstClockTime duration = GST_CLOCK_TIME_NONE;    
 
     GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(agg);
     outbuf = gst_aggregator_pad_pop_buffer(GST_AGGREGATOR_PAD(self->video_sink_pad));
@@ -108,6 +111,13 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
         GST_ERROR_OBJECT(self, "Failed to pop buffer from video sink pad");
         return GST_FLOW_ERROR;
     }
+
+    pts = GST_BUFFER_PTS(outbuf);
+    dts = GST_BUFFER_DTS(outbuf);
+    duration = GST_BUFFER_DURATION(outbuf);
+
+    GST_LOG_OBJECT(agg, "Processing buffer from pad %p with PTS: %" GST_TIME_FORMAT, self->video_sink_pad, GST_TIME_ARGS(pts));
+
 
     GList *walk;
 
@@ -142,6 +152,7 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
         }
     }
 
+    gst_aggregator_selected_samples(agg, pts, dts, duration, NULL);
     gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
     return GST_FLOW_OK;
     return GST_FLOW_OK;
@@ -155,7 +166,7 @@ static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *
 
     // Ensure direction is correct
     if (templ->direction != GST_PAD_SINK || sscanf (name, meta_sink_factory.name_template, &stream_index) < 1) {
-        GST_ERROR_OBJECT(agg, "Only sink_\%u pads can be created dynamically.");
+        GST_ERROR_OBJECT(agg, "Only '%s' pads can be created dynamically", meta_sink_factory.name_template);
         return NULL;
     }
 
