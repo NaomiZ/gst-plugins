@@ -116,9 +116,6 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     dts = GST_BUFFER_DTS(outbuf);
     duration = GST_BUFFER_DURATION(outbuf);
 
-    GST_LOG_OBJECT(agg, "Processing buffer from pad %p with PTS: %" GST_TIME_FORMAT, self->video_sink_pad, GST_TIME_ARGS(pts));
-
-
     GList *walk;
 
     for (walk = self->dynamic_sink_pads; walk; walk = g_list_next(walk)) {
@@ -190,6 +187,16 @@ static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *
     
     GST_DEBUG_OBJECT(agg, "Created new pad: %s", name);
     return new_pad;
+}
+
+static void my_element_release_pad(GstElement *element, GstPad *pad) {
+    GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(element);
+
+    GST_INFO_OBJECT(self, "Releasing pad: %s", GST_PAD_NAME(pad));
+
+    self->dynamic_sink_pads = g_list_remove(self->dynamic_sink_pads, pad);
+    
+    gst_element_remove_pad(element, pad);
 }
 
 static gboolean plugin_init(GstPlugin *plugin) {
