@@ -193,6 +193,14 @@ static void my_element_release_pad(GstElement *element, GstPad *pad) {
     GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(element);
 
     GST_INFO_OBJECT(self, "Releasing pad: %s", GST_PAD_NAME(pad));
+    
+    auto pad_name = gst_pad_get_name(pad);
+    if (g_strcmp0(pad_name, video_sink_factory.name_template) == 0 && self->dynamic_sink_pads) {
+        GST_WARNING_OBJECT(pad,
+            "%s pad is being released, while other sink pads are still linked. "
+            "The pipeline may not progress as long as %s is unlinked.",
+            pad_name, pad_name);
+    }
 
     self->dynamic_sink_pads = g_list_remove(self->dynamic_sink_pads, pad);
     
