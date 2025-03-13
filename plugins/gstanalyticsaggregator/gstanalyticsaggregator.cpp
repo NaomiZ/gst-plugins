@@ -10,7 +10,8 @@
 
 G_DEFINE_TYPE(GstAnalyticsAggregator, gst_analytics_aggregator, GST_TYPE_AGGREGATOR);
 
-static GstCaps *gst_analytics_aggregator_get_caps(GstAggregator *agg, GstPad *pad, GstCaps *filter);
+static GstFlowReturn gst_analytics_aggregator_update_src_caps(GstAggregator *aggregator, GstCaps *caps, GstCaps **ret);
+static gboolean gst_analytics_aggregator_sink_query(GstAggregator *parent, GstAggregatorPad *pad, GstQuery *query);
 static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *agg, GstPadTemplate *templ, const gchar *name, const GstCaps *caps);
 static gboolean gst_analytics_aggregator_sink_event(GstAggregator *agg, GstAggregatorPad *pad, GstEvent *event);
 static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboolean timeout);
@@ -56,17 +57,16 @@ static void gst_analytics_aggregator_class_init(GstAnalyticsAggregatorClass *kla
     aggregator_class->sink_event = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_sink_event);
     aggregator_class->aggregate = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_aggregate);
     aggregator_class->create_new_pad = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_create_new_pad);
+    aggregator_class->sink_query = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_sink_query);
+    aggregator_class->update_src_caps = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_update_src_caps);
     
     // Add pad templates for the video sink, dynamic sink, and source pads
     gst_element_class_add_static_pad_template_with_gtype(element_class, &video_sink_factory, GST_TYPE_AGGREGATOR_PAD);
     gst_element_class_add_static_pad_template_with_gtype(element_class, &meta_sink_factory, GST_TYPE_AGGREGATOR_PAD);
     gst_element_class_add_static_pad_template_with_gtype(element_class, &src_factory, GST_TYPE_AGGREGATOR_PAD);
-
-    g_print("gst_analytics_aggregator_class_init\n");
 }
 
 static void gst_analytics_aggregator_init(GstAnalyticsAggregator *self) {
-    g_print("gst_analytics_aggregator_init\n");
     self->video_sink_pad = GST_AGGREGATOR_PAD(g_object_new(GST_TYPE_AGGREGATOR_PAD,
                                         "name", "video_sink",
                                         "direction", GST_PAD_SINK, NULL));
@@ -155,7 +155,61 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     return GST_FLOW_OK;
 }
 
-static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *agg, GstPadTemplate *templ, const gchar *name, const GstCaps  * caps) {
+GstFlowReturn gst_analytics_aggregator_update_src_caps(GstAggregator *aggregator, GstCaps *caps, GstCaps **ret)
+{
+    GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(aggregator);
+    GstCaps *video_sink_caps = gst_pad_get_current_caps(GST_PAD(self->video_sink_pad));
+    if (!video_sink_caps || gst_caps_is_empty(video_sink_caps)) {
+        GST_WARNING_OBJECT(aggregator, "Video sink pad caps are not set, using default caps");
+        video_sink_caps = gst_caps_new_simple("video/x-raw",
+                                            "format", G_TYPE_STRING, "NV12",
+                                            "width", G_TYPE_INT, 320,
+                                            "height", G_TYPE_INT, 240,
+                                            "framerate", GST_TYPE_FRACTION, 30, 1,
+                                            NULL);
+    }
+
+    if (!gst_caps_can_intersect(video_sink_caps, caps)) {
+        GST_ERROR_OBJECT(aggregator, "Caps are not compatible with video sink pad caps");
+        gst_caps_unref(video_sink_caps);
+        return GST_FLOW_ERROR;
+    }
+
+    *ret = gst_caps_copy(video_sink_caps);
+    gst_caps_unref(video_sink_caps);
+    return GST_FLOW_OK;
+}
+
+static gboolean gst_analytics_aggregator_sink_query(GstAggregator *parent, GstAggregatorPad *pad, GstQuery *query)
+{
+    gboolean result = FALSE;
+
+    switch (GST_QUERY_TYPE(query)) {
+        case GST_QUERY_CAPS:
+        {
+            GstCaps *filter;
+            gst_query_parse_caps(query, &filter);
+            GstCaps *caps = gst_pad_get_pad_template_caps(GST_PAD(pad));
+            if (filter) {
+                GstCaps *intersection = gst_caps_intersect_full(filter, caps, GST_CAPS_INTERSECT_FIRST);
+                gst_caps_unref(caps);
+                caps = intersection;
+            }
+            gst_query_set_caps_result(query, caps);
+            gst_caps_unref(caps);
+            result = TRUE;
+            break;
+        }
+        default:
+            result = GST_AGGREGATOR_CLASS(gst_analytics_aggregator_parent_class)->sink_query(GST_AGGREGATOR(parent), pad, query);
+            break;
+    }
+
+    return result;
+}
+
+static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *agg, GstPadTemplate *templ, const gchar *name, const GstCaps *caps)
+{
     GstElementClass *klass = GST_ELEMENT_GET_CLASS(agg);
     GstPadTemplate *pad_template;
     GstAggregatorPad *new_pad;
