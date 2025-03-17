@@ -15,6 +15,7 @@ static gboolean gst_analytics_aggregator_sink_query(GstAggregator *parent, GstAg
 static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *agg, GstPadTemplate *templ, const gchar *name, const GstCaps *caps);
 static gboolean gst_analytics_aggregator_sink_event(GstAggregator *agg, GstAggregatorPad *pad, GstEvent *event);
 static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboolean timeout);
+static void gst_analytics_release_pad(GstElement *element, GstPad *pad);
 
 #define GST_CAPS_FEATURE_MEMORY_NVMM "memory:NVMM"
 
@@ -59,7 +60,8 @@ static void gst_analytics_aggregator_class_init(GstAnalyticsAggregatorClass *kla
     aggregator_class->create_new_pad = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_create_new_pad);
     aggregator_class->sink_query = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_sink_query);
     aggregator_class->update_src_caps = GST_DEBUG_FUNCPTR(gst_analytics_aggregator_update_src_caps);
-    
+    element_class->release_pad = GST_DEBUG_FUNCPTR(gst_analytics_release_pad);
+
     // Add pad templates for the video sink, dynamic sink, and source pads
     gst_element_class_add_static_pad_template_with_gtype(element_class, &video_sink_factory, GST_TYPE_AGGREGATOR_PAD);
     gst_element_class_add_static_pad_template_with_gtype(element_class, &meta_sink_factory, GST_TYPE_AGGREGATOR_PAD);
@@ -98,6 +100,7 @@ static gboolean gst_analytics_aggregator_sink_event(GstAggregator *agg, GstAggre
 }
 
 static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboolean timeout) {
+    g_print("aggregate()\n");
     GstBuffer *outbuf = NULL;
     GstBuffer *inbuf = NULL;
     GstAggregatorPad *pad;
@@ -151,7 +154,6 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
 
     gst_aggregator_selected_samples(agg, pts, dts, duration, NULL);
     gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
-    return GST_FLOW_OK;
     return GST_FLOW_OK;
 }
 
@@ -243,7 +245,7 @@ static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *
     return new_pad;
 }
 
-static void my_element_release_pad(GstElement *element, GstPad *pad) {
+static void gst_analytics_release_pad(GstElement *element, GstPad *pad) {
     GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(element);
 
     GST_INFO_OBJECT(self, "Releasing pad: %s", GST_PAD_NAME(pad));
