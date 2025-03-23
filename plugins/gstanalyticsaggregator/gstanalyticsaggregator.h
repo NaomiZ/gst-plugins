@@ -15,6 +15,8 @@ struct _GstAnalyticsAggregator {
     GstAggregatorPad *video_sink_pad;
     GList *dynamic_sink_pads;
     GstAggregatorPad *src_pad;
+
+    gboolean silent;
 };
 
 struct _GstAnalyticsAggregatorClass {
