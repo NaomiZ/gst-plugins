@@ -2,9 +2,11 @@
 #include <gst/video/video.h>
 #include <gst/base/gstaggregator.h>
 #include <nvdsmeta.h>
+#include <nvbufsurface.h>
 #include <gstnvdsmeta.h>
 #include "gstanalyticsaggregator.h"
 #include <stdio.h>
+#include <utility>
 
 #define PLUGIN_NAME "analyticsaggregator"
 
@@ -72,9 +74,9 @@ static void gst_analytics_aggregator_class_init(GstAnalyticsAggregatorClass *kla
     gobject_class->set_property = gst_analytics_aggregator_set_property;
     gobject_class->get_property = gst_analytics_aggregator_get_property;
 
-    g_object_class_install_property (gobject_class, PROP_SILENT,
-                                    g_param_spec_boolean ("silent", "Silent", "Silent prints", 
-                                                        FALSE, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+    g_object_class_install_property(gobject_class, PROP_SILENT,
+                                    g_param_spec_boolean("silent", "Silent", "Silent prints",
+                                                         FALSE, (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
     // Add pad templates for the video sink, dynamic sink, and source pads
     gst_element_class_add_static_pad_template_with_gtype(element_class, &video_sink_factory, GST_TYPE_AGGREGATOR_PAD);
@@ -145,6 +147,29 @@ static gboolean gst_analytics_aggregator_sink_event(GstAggregator *agg, GstAggre
     return GST_AGGREGATOR_CLASS(gst_analytics_aggregator_parent_class)->sink_event(agg, pad, event);
 }
 
+static std::pair<uint32_t, uint32_t> get_frame_dimensions_from_buffer(GstBuffer *buffer)
+{
+    GstMapInfo map = {};
+    if (!gst_buffer_map(buffer, &map, GST_MAP_READ))
+    {
+        GST_ERROR("Failed to map buffer");
+        return {0, 0};
+    }
+
+    NvBufSurface *surface = (NvBufSurface *)map.data;
+    if (!surface)
+    {
+        GST_ERROR("Failed to get NvBufSurface from buffer");
+        gst_buffer_unmap(buffer, &map);
+        return {0, 0};
+    }
+
+    uint32_t frame_width = surface->surfaceList->width;
+    uint32_t frame_height = surface->surfaceList->height;
+
+    gst_buffer_unmap(buffer, &map);
+    return {frame_width, frame_height};
+}
 static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboolean timeout)
 {
     GstBuffer *outbuf = NULL;
@@ -156,7 +181,7 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     uint8_t pads_counter = 1;
 
     GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(agg);
-    outbuf = gst_aggregator_pad_pop_buffer(GST_AGGREGATOR_PAD(self->video_sink_pad));
+    outbuf = gst_aggregator_pad_pop_buffer(self->video_sink_pad);
     if (!outbuf)
     {
         GST_ERROR_OBJECT(self, "Failed to pop buffer from video sink pad");
@@ -167,53 +192,88 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     dts = GST_BUFFER_DTS(outbuf);
     duration = GST_BUFFER_DURATION(outbuf);
 
-    GList *walk;
+    std::pair<uint32_t,uint32_t> frame_dim = get_frame_dimensions_from_buffer(outbuf);
+    if (frame_dim.first == 0 || frame_dim.second == 0)
+    {
+        GST_ERROR_OBJECT(self, "Failed to get frame dimensions from buffer");
+        return GST_FLOW_ERROR;
+    }
 
-    for (walk = self->dynamic_sink_pads; walk; walk = g_list_next(walk))
+    for (GList *walk = self->dynamic_sink_pads; walk; walk = g_list_next(walk))
     {
         pad = GST_AGGREGATOR_PAD(walk->data);
         if (pad)
         {
             pads_counter++;
             inbuf = gst_aggregator_pad_pop_buffer(pad);
-            if (inbuf)
+            if (!inbuf)
             {
-                NvDsMetaList *l;
+                GST_WARNING_OBJECT(self, "Failed to pop buffer from pad: %s", GST_PAD_NAME(pad));
+            }
+            else
+            {
+                if (!self->silent)
+                {
+                    g_print("analyticsaggregator::aggregate - pad: %s\n", GST_PAD_NAME(pad));
+                }
+                
+                std::pair<uint32_t,uint32_t> in_frame_dim = get_frame_dimensions_from_buffer(outbuf);
+                if (in_frame_dim.first == 0 || in_frame_dim.second == 0)
+                {
+                    GST_ERROR_OBJECT(self, "Failed to get frame dimensions from buffer");
+                    return GST_FLOW_ERROR;
+                }
+
+                std::pair<uint32_t,uint32_t> scale_factor = {frame_dim.first / in_frame_dim.first, frame_dim.second / in_frame_dim.second};
+                if (!self->silent)
+                {
+                    g_print("analyticsaggregator::aggregate - scale factor: %d, %d\n", scale_factor.first, scale_factor.second);
+                }
+
+                // Scale the inbuf object metadata to the outbuf object metadata
                 NvDsBatchMeta *batch_meta = gst_buffer_get_nvds_batch_meta(inbuf);
                 if (batch_meta)
                 {
-                    for (l = batch_meta->frame_meta_list; l != NULL; l = l->next)
+                    for (NvDsMetaList *l_frame = batch_meta->frame_meta_list; l_frame != NULL; l_frame = l_frame->next)
                     {
-                        NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)(l->data);
+                        NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)l_frame->data;
                         if (frame_meta)
                         {
-                            NvDsUserMetaList *user_meta_list = frame_meta->frame_user_meta_list;
-                            while (user_meta_list)
+                            for (NvDsMetaList *l_obj = frame_meta->obj_meta_list; l_obj != NULL; l_obj = l_obj->next)
                             {
-                                NvDsUserMeta *user_meta = (NvDsUserMeta *)(user_meta_list->data);
-                                if (user_meta)
+                                NvDsObjectMeta *obj_meta = (NvDsObjectMeta *)l_obj->data;
+                                if (obj_meta)
                                 {
-                                    gst_buffer_add_nvds_meta(outbuf, user_meta, NULL, NULL, NULL);
+                                    obj_meta->rect_params.left *= scale_factor.first;
+                                    obj_meta->rect_params.top *= scale_factor.second;
+                                    obj_meta->rect_params.width *= scale_factor.first;
+                                    obj_meta->rect_params.height *= scale_factor.second;
                                 }
-                                user_meta_list = user_meta_list->next;
                             }
                         }
                     }
                 }
-                gst_buffer_unref(inbuf);
+                else
+                {
+                    GST_WARNING_OBJECT(self, "No batch meta from buffer from pad: %s", GST_PAD_NAME(pad));
+                }
+
             }
         }
         else
         {
-            GST_WARNING_OBJECT(self, "Pad is null: %s, removing pad", GST_PAD_NAME(pad));
+            GST_WARNING_OBJECT(self, "Found null pad in dynamic sink pad list, removing pad from list");
             self->dynamic_sink_pads = g_list_remove(self->dynamic_sink_pads, pad);
         }
     }
-    if(!self->silent) {
+    if (!self->silent)
+    {
         g_print("analyticsaggregator::aggregate - %d pads\n", pads_counter);
     }
 
     gst_aggregator_selected_samples(agg, pts, dts, duration, NULL);
+    //gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
+    //pass a fake buffer to the next element
     gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
     return GST_FLOW_OK;
 }
@@ -297,10 +357,8 @@ static GstAggregatorPad *gst_analytics_aggregator_create_new_pad(GstAggregator *
         return NULL;
     }
 
-    // Create the dynamic pad from the template
-    // Create a new GstAggregatorPad
     new_pad = GST_AGGREGATOR_PAD(gst_pad_new_from_template(pad_template, name));
-    
+
     // Add the new pad to the list of dynamic sink pads
     GstAnalyticsAggregator *self = GST_ANALYTICS_AGGREGATOR(agg);
     self->dynamic_sink_pads = g_list_append(self->dynamic_sink_pads, new_pad);
@@ -327,7 +385,8 @@ static void gst_analytics_release_pad(GstElement *element, GstPad *pad)
     self->dynamic_sink_pads = g_list_remove(self->dynamic_sink_pads, pad);
 
     gst_element_remove_pad(element, pad);
-    if (!self->silent) {
+    if (!self->silent)
+    {
         g_print("%s pad is released from analytics aggregator", pad_name);
     }
 }
