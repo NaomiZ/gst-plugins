@@ -192,7 +192,7 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     dts = GST_BUFFER_DTS(outbuf);
     duration = GST_BUFFER_DURATION(outbuf);
 
-    std::pair<uint32_t,uint32_t> frame_dim = get_frame_dimensions_from_buffer(outbuf);
+    std::pair<uint32_t, uint32_t> frame_dim = get_frame_dimensions_from_buffer(outbuf);
     if (frame_dim.first == 0 || frame_dim.second == 0)
     {
         GST_ERROR_OBJECT(self, "Failed to get frame dimensions from buffer");
@@ -216,15 +216,15 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
                 {
                     g_print("analyticsaggregator::aggregate - pad: %s\n", GST_PAD_NAME(pad));
                 }
-                
-                std::pair<uint32_t,uint32_t> in_frame_dim = get_frame_dimensions_from_buffer(outbuf);
+
+                std::pair<uint32_t, uint32_t> in_frame_dim = get_frame_dimensions_from_buffer(inbuf);
                 if (in_frame_dim.first == 0 || in_frame_dim.second == 0)
                 {
                     GST_ERROR_OBJECT(self, "Failed to get frame dimensions from buffer");
                     return GST_FLOW_ERROR;
                 }
 
-                std::pair<uint32_t,uint32_t> scale_factor = {frame_dim.first / in_frame_dim.first, frame_dim.second / in_frame_dim.second};
+                std::pair<uint32_t, uint32_t> scale_factor = {frame_dim.first / in_frame_dim.first, frame_dim.second / in_frame_dim.second};
                 if (!self->silent)
                 {
                     g_print("analyticsaggregator::aggregate - scale factor: %d, %d\n", scale_factor.first, scale_factor.second);
@@ -248,6 +248,22 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
                                     obj_meta->rect_params.top *= scale_factor.second;
                                     obj_meta->rect_params.width *= scale_factor.first;
                                     obj_meta->rect_params.height *= scale_factor.second;
+
+                                    // Attach scaled metadata to outbuf
+                                    NvDsBatchMeta *out_batch_meta = gst_buffer_get_nvds_batch_meta(outbuf);
+                                    if (!out_batch_meta)
+                                    {
+                                        // Create a new NvDsBatchMeta if it doesn't exist
+                                        out_batch_meta = nvds_create_batch_meta(1); // 1 indicates a single frame
+                                        gst_buffer_add_nvds_meta(outbuf, out_batch_meta, NULL, NULL, NULL);
+                                    }
+                                    // Attach scaled metadata to outbuf
+                                    if (out_batch_meta)
+                                    {
+                                        NvDsObjectMeta *new_obj_meta = nvds_acquire_obj_meta_from_pool(out_batch_meta);
+                                        *new_obj_meta = *obj_meta; // Copy metadata
+                                        nvds_add_obj_meta_to_frame(frame_meta, new_obj_meta, NULL);
+                                    }
                                 }
                             }
                         }
@@ -257,7 +273,6 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
                 {
                     GST_WARNING_OBJECT(self, "No batch meta from buffer from pad: %s", GST_PAD_NAME(pad));
                 }
-
             }
         }
         else
@@ -272,8 +287,6 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     }
 
     gst_aggregator_selected_samples(agg, pts, dts, duration, NULL);
-    //gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
-    //pass a fake buffer to the next element
     gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
     return GST_FLOW_OK;
 }
