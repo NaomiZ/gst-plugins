@@ -196,9 +196,29 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
     if (frame_dim.first == 0 || frame_dim.second == 0)
     {
         GST_ERROR_OBJECT(self, "Failed to get frame dimensions from buffer");
+        gst_buffer_unref(outbuf);
         return GST_FLOW_ERROR;
     }
 
+    NvDsBatchMeta *out_batch_meta = gst_buffer_get_nvds_batch_meta(outbuf);
+    if (!out_batch_meta) {
+        out_batch_meta = nvds_create_batch_meta(1);
+        if (!out_batch_meta) {
+            GST_ERROR_OBJECT(self, "Failed to add NvDsBatchMeta to outbuf");
+            return GST_FLOW_ERROR;
+        }
+
+        NvDsMeta * meta = gst_buffer_add_nvds_meta(outbuf, out_batch_meta, NULL, NULL, NULL);
+        if (!meta) {
+            GST_ERROR_OBJECT(self, "Failed to add NvDsMeta to outbuf");
+            gst_buffer_unref(outbuf);
+            return GST_FLOW_ERROR;
+        }
+
+        GST_DEBUG_OBJECT(self, "Added NvDsBatchMeta to outbuf");     
+    }
+    
+    GST_DEBUG_OBJECT(self, "Processing dynamic sink pads");
     for (GList *walk = self->dynamic_sink_pads; walk; walk = g_list_next(walk))
     {
         pad = GST_AGGREGATOR_PAD(walk->data);
@@ -212,67 +232,77 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
             }
             else
             {
-                if (!self->silent)
-                {
-                    g_print("analyticsaggregator::aggregate - pad: %s\n", GST_PAD_NAME(pad));
-                }
+                GST_INFO_OBJECT(self, "Processing buffer from pad: %s", GST_PAD_NAME(pad));
 
                 std::pair<uint32_t, uint32_t> in_frame_dim = get_frame_dimensions_from_buffer(inbuf);
                 if (in_frame_dim.first == 0 || in_frame_dim.second == 0)
                 {
                     GST_ERROR_OBJECT(self, "Failed to get frame dimensions from buffer");
+                    gst_buffer_unref(inbuf);
+                    gst_buffer_unref(outbuf);
                     return GST_FLOW_ERROR;
                 }
 
-                std::pair<uint32_t, uint32_t> scale_factor = {frame_dim.first / in_frame_dim.first, frame_dim.second / in_frame_dim.second};
-                if (!self->silent)
-                {
-                    g_print("analyticsaggregator::aggregate - scale factor: %d, %d\n", scale_factor.first, scale_factor.second);
-                }
+                std::pair<float, float> scale_factor = {
+                    static_cast<float>(frame_dim.first) / in_frame_dim.first,
+                    static_cast<float>(frame_dim.second) / in_frame_dim.second
+                };
+                GST_INFO_OBJECT(self, "Frame dimensions (outbuf): width=%d, height=%d", frame_dim.first, frame_dim.second);
+                GST_INFO_OBJECT(self, "Frame dimensions (inbuf): width=%d, height=%d", in_frame_dim.first, in_frame_dim.second);
+                GST_INFO_OBJECT(self, "Scale factor: %.2f, %.2f", scale_factor.first, scale_factor.second);
 
-                // Scale the inbuf object metadata to the outbuf object metadata
-                NvDsBatchMeta *batch_meta = gst_buffer_get_nvds_batch_meta(inbuf);
-                if (batch_meta)
+                NvDsBatchMeta *in_batch_meta = gst_buffer_get_nvds_batch_meta(inbuf);
+                if (in_batch_meta)
                 {
-                    for (NvDsMetaList *l_frame = batch_meta->frame_meta_list; l_frame != NULL; l_frame = l_frame->next)
+                    GST_INFO_OBJECT(self, "Processing batch metadata for pad: %s", GST_PAD_NAME(pad));
+                    for (NvDsMetaList *l_frame = in_batch_meta->frame_meta_list; l_frame != NULL; l_frame = l_frame->next)
                     {
-                        NvDsFrameMeta *frame_meta = (NvDsFrameMeta *)l_frame->data;
-                        if (frame_meta)
+                        NvDsFrameMeta *out_frame_meta = nvds_acquire_frame_meta_from_pool(out_batch_meta);
+                        NvDsFrameMeta *in_frame_meta = (NvDsFrameMeta *)l_frame->data; // Renamed from frame_meta to in_frame_meta
+                        if (in_frame_meta && out_frame_meta)
                         {
-                            for (NvDsMetaList *l_obj = frame_meta->obj_meta_list; l_obj != NULL; l_obj = l_obj->next)
+                            GST_INFO_OBJECT(self, "Processing frame metadata for pad: %s", GST_PAD_NAME(pad));
+                            for (NvDsMetaList *l_obj = in_frame_meta->obj_meta_list; l_obj != NULL; l_obj = l_obj->next)
                             {
+                                GST_INFO_OBJECT(self, "Processing object metadata for pad: %s", GST_PAD_NAME(pad));
                                 NvDsObjectMeta *obj_meta = (NvDsObjectMeta *)l_obj->data;
                                 if (obj_meta)
                                 {
-                                    obj_meta->rect_params.left *= scale_factor.first;
-                                    obj_meta->rect_params.top *= scale_factor.second;
-                                    obj_meta->rect_params.width *= scale_factor.first;
-                                    obj_meta->rect_params.height *= scale_factor.second;
+                                    NvDsObjectMeta *copied_obj_meta = nvds_acquire_obj_meta_from_pool(out_batch_meta);
+                                    if (copied_obj_meta)
+                                    {
+                                        *copied_obj_meta = *obj_meta; // Perform a shallow copy of the object metadata
+                                        copied_obj_meta->rect_params.left *= scale_factor.first;
+                                        copied_obj_meta->rect_params.top *= scale_factor.second;
+                                        copied_obj_meta->rect_params.width *= scale_factor.first;
+                                        copied_obj_meta->rect_params.height *= scale_factor.second;
 
-                                    // Attach scaled metadata to outbuf
-                                    NvDsBatchMeta *out_batch_meta = gst_buffer_get_nvds_batch_meta(outbuf);
-                                    if (!out_batch_meta)
-                                    {
-                                        // Create a new NvDsBatchMeta if it doesn't exist
-                                        out_batch_meta = nvds_create_batch_meta(1); // 1 indicates a single frame
-                                        gst_buffer_add_nvds_meta(outbuf, out_batch_meta, NULL, NULL, NULL);
+                                        nvds_add_obj_meta_to_frame(out_frame_meta, copied_obj_meta, NULL);
                                     }
-                                    // Attach scaled metadata to outbuf
-                                    if (out_batch_meta)
+                                    else
                                     {
-                                        NvDsObjectMeta *new_obj_meta = nvds_acquire_obj_meta_from_pool(out_batch_meta);
-                                        *new_obj_meta = *obj_meta; // Copy metadata
-                                        nvds_add_obj_meta_to_frame(frame_meta, new_obj_meta, NULL);
+                                        GST_ERROR_OBJECT(self, "Failed to acquire object meta from pool for pad: %s", GST_PAD_NAME(pad));
                                     }
+
+                                    GST_INFO_OBJECT(self, "Processed object meta for pad: %s", GST_PAD_NAME(pad));
                                 }
                             }
                         }
+                        else
+                        {
+                            GST_INFO_OBJECT(self, "No frame metadata found in buffer from pad: %s", GST_PAD_NAME(pad));
+                        }
+                        nvds_add_frame_meta_to_batch(out_batch_meta, out_frame_meta);
+                        GST_INFO_OBJECT(self, "Processed frame metadata for pad: %s", GST_PAD_NAME(pad));
                     }
                 }
                 else
                 {
-                    GST_WARNING_OBJECT(self, "No batch meta from buffer from pad: %s", GST_PAD_NAME(pad));
+                    GST_INFO_OBJECT(self, "No batch meta from buffer from pad: %s", GST_PAD_NAME(pad));
                 }
+                GST_INFO_OBJECT(self, "Finished processing metadata for pad: %s", GST_PAD_NAME(pad));
+                gst_buffer_unref(inbuf);
+                GST_INFO_OBJECT(self, "Finished processing metadata for pad: %s", GST_PAD_NAME(pad));
             }
         }
         else
@@ -281,10 +311,7 @@ static GstFlowReturn gst_analytics_aggregator_aggregate(GstAggregator *agg, gboo
             self->dynamic_sink_pads = g_list_remove(self->dynamic_sink_pads, pad);
         }
     }
-    if (!self->silent)
-    {
-        g_print("analyticsaggregator::aggregate - %d pads\n", pads_counter);
-    }
+    GST_INFO_OBJECT(self, "Processed %d pads", pads_counter);
 
     gst_aggregator_selected_samples(agg, pts, dts, duration, NULL);
     gst_aggregator_finish_buffer(GST_AGGREGATOR(self), outbuf);
@@ -398,10 +425,7 @@ static void gst_analytics_release_pad(GstElement *element, GstPad *pad)
     self->dynamic_sink_pads = g_list_remove(self->dynamic_sink_pads, pad);
 
     gst_element_remove_pad(element, pad);
-    if (!self->silent)
-    {
-        g_print("%s pad is released from analytics aggregator", pad_name);
-    }
+    GST_INFO_OBJECT(self, "%s pad is released from analytics aggregator", pad_name);
 }
 
 static gboolean plugin_init(GstPlugin *plugin)
