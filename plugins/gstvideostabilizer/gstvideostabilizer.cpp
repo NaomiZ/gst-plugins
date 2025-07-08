@@ -1,6 +1,8 @@
 #include "gstvideostabilizer.h"
 #include <gst/gst.h>
 #include <string.h>
+#include <opencv2/core.hpp>
+#include <opencv2/cudaarithm.hpp>
 
 /* static pad templates */
 static GstStaticPadTemplate sink_template = GST_STATIC_PAD_TEMPLATE(
@@ -23,14 +25,32 @@ G_DEFINE_TYPE(GstVideoStabilizer, gst_video_stabilizer, GST_TYPE_BASE_TRANSFORM)
 /* transform function */
 static GstFlowReturn
 gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuffer *outbuf) {
-  GstMapInfo in_map, out_map;
-  gst_buffer_map(inbuf, &in_map, GST_MAP_READ);
-  gst_buffer_map(outbuf, &out_map, GST_MAP_WRITE);
-  g_print("Processing buffer of size: %zu\n", in_map.size);
-  memcpy(out_map.data, in_map.data, in_map.size);
-  gst_buffer_unmap(inbuf, &in_map);
-  gst_buffer_unmap(outbuf, &out_map);
-  return GST_FLOW_OK;
+    GstMapInfo in_map, out_map;
+    gst_buffer_map(inbuf, &in_map, GST_MAP_READ);
+    gst_buffer_map(outbuf, &out_map, GST_MAP_WRITE);
+    g_print("Processing buffer of size: %zu\n", in_map.size);
+    // Load the frame to cv::cuda::GpuMat using OpenCV with CUDA
+    // Assume frame is NV12, width/height are known or can be queried from caps
+    GstCaps *caps = gst_pad_get_current_caps(GST_BASE_TRANSFORM_SRC_PAD(base));
+    int width = 0, height = 0;
+    if (caps) {
+        GstStructure *caps_structure = gst_caps_get_structure(caps, 0);
+        gst_structure_get_int(caps_structure, "width", &width);
+        gst_structure_get_int(caps_structure, "height", &height);
+        gst_caps_unref(caps);
+    }
+
+    if (width > 0 && height > 0) {
+        // NV12: Y plane (width*height), UV plane (width*height/2)
+        cv::cuda::GpuMat gpu_y(height, width, CV_8UC1, (void*)in_map.data);
+        cv::cuda::GpuMat gpu_uv(height/2, width, CV_8UC1, (void*)(in_map.data + width*height));
+        // Now gpu_y and gpu_uv hold the Y and UV planes on GPU
+        // You can process them as needed
+    }
+    memcpy(out_map.data, in_map.data, in_map.size);
+    gst_buffer_unmap(inbuf, &in_map);
+    gst_buffer_unmap(outbuf, &out_map);
+    return GST_FLOW_OK;
 }
 
 /* class init */

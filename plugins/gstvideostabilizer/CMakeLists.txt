@@ -4,9 +4,11 @@ project(gstvideostabilizer)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-base-1.0)
+find_package(OpenCV REQUIRED)
 
 include_directories(
     ${GST_INCLUDE_DIRS}
+    ${OpenCV_INCLUDE_DIRS}
 )
 
 link_directories(
@@ -20,6 +22,7 @@ add_library(gstvideostabilizer SHARED
 
 target_link_libraries(gstvideostabilizer
     ${GST_LIBRARIES}
+    ${OpenCV_LIBS}
 )
 
 target_compile_definitions(gstvideostabilizer PRIVATE PACKAGE=\"videostabilizer\")
