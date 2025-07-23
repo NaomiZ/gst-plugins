@@ -18,7 +18,7 @@ include_directories(
 
 link_directories(
     ${GST_LIBRARY_DIRS}
-    ${DEEPSTREAM_INCLUDE_DIRS}
+    ${DEEPSTREAM_LIBRARY_DIRS}
 )
 
 add_library(gstvideostabilizer SHARED
@@ -29,6 +29,7 @@ add_library(gstvideostabilizer SHARED
 target_link_libraries(gstvideostabilizer
     ${GST_LIBRARIES}
     ${OpenCV_LIBS}
+    nvbufsurface
 )
 
 target_compile_definitions(gstvideostabilizer PRIVATE PACKAGE=\"videostabilizer\")
