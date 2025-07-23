@@ -3,6 +3,7 @@
 #include <string.h>
 #include <opencv2/core.hpp>
 #include <opencv2/cudaarithm.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <nvbufsurface.h>
 
 /* static pad templates */
@@ -31,6 +32,10 @@ gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuff
     gst_buffer_map(outbuf, &out_map, GST_MAP_WRITE);
 
     NvBufSurface *in_surface = (NvBufSurface*)in_map.data;
+
+    NvBufSurfaceMap(in_surface, 0, 0, NVBUF_MAP_READ);
+    NvBufSurfaceSyncForCpu(in_surface, 0, 0);
+
     auto frame = in_surface->surfaceList[0].dataPtr;
     if (!frame) {
         g_print("Failed to get frame data from NvBufSurface\n");
@@ -38,11 +43,33 @@ gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuff
         gst_buffer_unmap(outbuf, &out_map);
         return GST_FLOW_ERROR;
     }
-    
-    g_print("Frame size: %dX%d\n", in_surface->surfaceList[0].width, in_surface->surfaceList[0].height);
 
+    g_print("Frame size: %dX%d\n", in_surface->surfaceList[0].width, in_surface->surfaceList[0].height);
+    
+    int width = in_surface->surfaceList[0].width;
+    int height = in_surface->surfaceList[0].height;
+    int pitch = in_surface->surfaceList[0].pitch;
+    uchar *y_ptr = (uchar*)in_surface->surfaceList[0].dataPtr;
+
+    cv::cuda::GpuMat y_gpu(height, width, CV_8UC1, y_ptr, pitch);
+    g_print("Y plane size: %dX%d, pitch: %ld\n", y_gpu.rows, y_gpu.cols, y_gpu.step);
+    // For NV12, UV plane starts after Y plane (height * pitch bytes)
+    uchar *uv_ptr = y_ptr + height * pitch;
+    // UV plane is half the height of Y, and width is the same pitch
+    cv::cuda::GpuMat uv_gpu(height / 2, width, CV_8UC1, uv_ptr, pitch);
+
+    // Download Y plane from GPU and save as PNG
+    cv::Mat y_cpu(height, width, CV_8UC1, y_ptr, pitch);
+    
+    cv::Mat y_contig;
+    y_cpu.copyTo(y_contig);
+    
+    std::string y_path = "./frame/y.png";
+    cv::imwrite(y_path, y_contig);
 
     memcpy(out_map.data, in_map.data, in_map.size);
+
+    NvBufSurfaceUnMap(in_surface, 0, 0);
     gst_buffer_unmap(inbuf, &in_map);
     gst_buffer_unmap(outbuf, &out_map);
     return GST_FLOW_OK;
