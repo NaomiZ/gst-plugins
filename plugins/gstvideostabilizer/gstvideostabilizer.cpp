@@ -24,54 +24,67 @@ static GstStaticPadTemplate src_template = GST_STATIC_PAD_TEMPLATE(
 /* class definition */
 G_DEFINE_TYPE(GstVideoStabilizer, gst_video_stabilizer, GST_TYPE_BASE_TRANSFORM);
 
+/* helper function */
+static void print_surface_debug_info(const NvBufSurface *surface) {
+    g_print("Batch size: %u\n", surface->batchSize);
+    g_print("memory type: %d\n", surface->memType);
+
+    g_print("Frame size: %dX%d\n", surface->surfaceList[0].width, surface->surfaceList[0].height);
+    g_print("Frame pitch: %d\n", surface->surfaceList[0].pitch);
+    g_print("Frame color format: %d\n", surface->surfaceList[0].colorFormat);
+    g_print("Frame data size: %d\n", surface->surfaceList[0].dataSize);
+    g_print("Number of planes: %d\n", surface->surfaceList[0].planeParams.num_planes);
+}
+
+static void save_y_plane_from_surface_to_host(NvBufSurface *surface) {
+    if (!surface || surface->numFilled == 0) {
+        g_print("No valid surface data to save.\n");
+        return;
+    }
+
+    g_print("Saving frame from NvBufSurface...\n");
+    print_surface_debug_info(surface);
+
+    NvBufSurfaceMap(surface, -1, -1, NVBUF_MAP_READ);
+    NvBufSurfaceSyncForCpu(surface, -1, -1);
+
+    int width = surface->surfaceList[0].width;
+    int height = surface->surfaceList[0].height;
+    int pitch = surface->surfaceList[0].pitch;
+    uchar *y_cpu_ptr = (uchar*)surface->surfaceList[0].mappedAddr.addr[0];
+
+    cv::Mat y_cpu = cv::Mat(height, width, CV_8UC1, y_cpu_ptr, pitch);
+    
+    std::string y_path = "./frame/y.png";
+    cv::imwrite(y_path, y_cpu);
+
+    NvBufSurfaceUnMap(surface, -1, -1);
+
+}
+
 /* transform function */
 static GstFlowReturn
 gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuffer *outbuf) {
     GstMapInfo in_map, out_map;
     gst_buffer_map(inbuf, &in_map, GST_MAP_READ);
     gst_buffer_map(outbuf, &out_map, GST_MAP_WRITE);
-    gst_buffer_peek_memory(inbuf, 0);
+    
     NvBufSurface *in_surface = (NvBufSurface*)in_map.data;
 
-    NvBufSurfaceMap(in_surface, -1, -1, NVBUF_MAP_READ);
-    NvBufSurfaceSyncForCpu(in_surface, -1, -1);
-
     auto frame = in_surface->surfaceList[0].dataPtr;
+
+    save_y_plane_from_surface_to_host(in_surface);
     
     if (!frame) {
         g_print("Failed to get frame data from NvBufSurface\n");
-            g_print("Failed to get frame data from NvBufSurface\n");NvBufSurfaceUnMap(in_surface, -1, -1);
 
         gst_buffer_unmap(inbuf, &in_map);
         gst_buffer_unmap(outbuf, &out_map);
         return GST_FLOW_ERROR;
     }
-
-    g_print("Batch size: %u\n", in_surface->batchSize);
-    g_print("memory type: %d\n", in_surface->memType);
-
-    g_print("Frame size: %dX%d\n", in_surface->surfaceList[0].width, in_surface->surfaceList[0].height);
-    g_print("Frame pitch: %d\n", in_surface->surfaceList[0].pitch);
-    g_print("Frame color format: %d\n", in_surface->surfaceList[0].colorFormat);
-    g_print("Frame data size: %d\n", in_surface->surfaceList[0].dataSize);
-    g_print("Number of planes: %d\n", in_surface->surfaceList[0].planeParams.num_planes);
-
-    int width = in_surface->surfaceList[0].width;
-    int height = in_surface->surfaceList[0].height;
-    int pitch = in_surface->surfaceList[0].pitch;
-    uchar *y_ptr = (uchar*)in_surface->surfaceList[0].mappedAddr.addr[0];
-
-    cv::Mat y_cpu = cv::Mat(height, width, CV_8UC1, y_ptr, pitch);
-    
-    cv::Mat y_contig;
-    y_cpu.copyTo(y_contig);
-    
-    std::string y_path = "./frame/y.png";
-    cv::imwrite(y_path, y_contig);
     
     memcpy(out_map.data, in_map.data, in_map.size);
 
-    NvBufSurfaceUnMap(in_surface, -1, -1);
     gst_buffer_unmap(inbuf, &in_map);
     gst_buffer_unmap(outbuf, &out_map);
     return GST_FLOW_OK;
