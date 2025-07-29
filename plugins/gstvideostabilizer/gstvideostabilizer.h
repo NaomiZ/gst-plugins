@@ -2,6 +2,7 @@
 #define GST_VIDEO_STABILIZER_H
 
 #include <gst/base/gstbasetransform.h>
+#include <opencv2/cudaoptflow.hpp>
 
 G_BEGIN_DECLS
 
@@ -17,6 +18,16 @@ typedef struct _GstVideoStabilizerClass GstVideoStabilizerClass;
 struct _GstVideoStabilizer {
   GstBaseTransform base_trans;
   /* instance members */
+  
+  cv::Ptr<cv::cuda::OpticalFlowDual_TVL1> tvl1;// CUDA-TVL1 solver
+
+  // per-frame state
+  cv::cuda::GpuMat            prev_gray;        // last frame’s luma
+  cv::Mat                     last_transform;   // 2×3 affine warp accumulated
+
+  // helpers / flag
+  bool                        first_frame;
+  guint64                     processed_frame_count;
 };
 
 struct _GstVideoStabilizerClass {

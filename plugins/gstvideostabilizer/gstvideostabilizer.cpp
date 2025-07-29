@@ -45,8 +45,8 @@ static void save_y_plane_from_surface_to_host(NvBufSurface *surface) {
     g_print("Saving frame from NvBufSurface...\n");
     print_surface_debug_info(surface);
 
-    NvBufSurfaceMap(surface, -1, -1, NVBUF_MAP_READ);
-    NvBufSurfaceSyncForCpu(surface, -1, -1);
+    NvBufSurfaceMap(surface, 0, 0, NVBUF_MAP_READ);
+    NvBufSurfaceSyncForCpu(surface, 0, 0);
 
     int width = surface->surfaceList[0].width;
     int height = surface->surfaceList[0].height;
@@ -58,36 +58,52 @@ static void save_y_plane_from_surface_to_host(NvBufSurface *surface) {
     std::string y_path = "./frame/y.png";
     cv::imwrite(y_path, y_cpu);
 
-    NvBufSurfaceUnMap(surface, -1, -1);
+    NvBufSurfaceUnMap(surface, 0, 0);
 
 }
 
 /* transform function */
 static GstFlowReturn
 gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuffer *outbuf) {
-    GstMapInfo in_map, out_map;
-    gst_buffer_map(inbuf, &in_map, GST_MAP_READ);
-    gst_buffer_map(outbuf, &out_map, GST_MAP_WRITE);
-    
-    NvBufSurface *in_surface = (NvBufSurface*)in_map.data;
+  
+  GstVideoStabilizer *self = (GstVideoStabilizer *)base;
 
-    auto frame = in_surface->surfaceList[0].dataPtr;
+  GstMapInfo in_map, out_map;
+  gst_buffer_map(inbuf, &in_map, GST_MAP_READ);
+  gst_buffer_map(outbuf, &out_map, GST_MAP_WRITE);
 
-    save_y_plane_from_surface_to_host(in_surface);
-    
-    if (!frame) {
-        g_print("Failed to get frame data from NvBufSurface\n");
+  
+  NvBufSurface *in_surface = (NvBufSurface*)in_map.data;
 
-        gst_buffer_unmap(inbuf, &in_map);
-        gst_buffer_unmap(outbuf, &out_map);
-        return GST_FLOW_ERROR;
+  auto frame = in_surface->surfaceList[0].dataPtr;
+  
+  if (!frame) {
+      g_print("Failed to get frame data from NvBufSurface\n");
+
+      gst_buffer_unmap(inbuf, &in_map);
+      gst_buffer_unmap(outbuf, &out_map);
+      return GST_FLOW_ERROR;
     }
     
-    memcpy(out_map.data, in_map.data, in_map.size);
+  int width = in_surface->surfaceList[0].width;
+  int height = in_surface->surfaceList[0].height;
+  int pitch = in_surface->surfaceList[0].pitch;
+  uchar *y_d_ptr = (uchar*)in_surface->surfaceList[0].dataPtr;
 
-    gst_buffer_unmap(inbuf, &in_map);
-    gst_buffer_unmap(outbuf, &out_map);
-    return GST_FLOW_OK;
+  cv::cuda::GpuMat d_gray(height, width, CV_8UC1, y_d_ptr, pitch);
+
+  if (self->first_frame) {
+    g_print("Processing first frame...\n");
+    //FIXME: initilize prev_gray before use.
+    // d_gray.copyTo(self->prev_gray);
+    self->first_frame = FALSE;
+  }
+  
+  memcpy(out_map.data, in_map.data, in_map.size);
+
+  gst_buffer_unmap(inbuf, &in_map);
+  gst_buffer_unmap(outbuf, &out_map);
+  return GST_FLOW_OK;
 }
 
 /* class init */
@@ -111,6 +127,17 @@ static void
 gst_video_stabilizer_init(GstVideoStabilizer *filter) {
   /* not in-place, separate input/output buffers */
   gst_base_transform_set_in_place(GST_BASE_TRANSFORM(filter), FALSE);
+  
+  /* Per-instance state */
+  filter->first_frame = TRUE;
+  filter->processed_frame_count = 0;
+
+  /* Create the CUDA TV-L1 solver */
+  filter->tvl1 = cv::cuda::OpticalFlowDual_TVL1::create();
+
+  /* Start with an identity 2×3 affine transform */
+  filter->last_transform = cv::Mat::eye(2, 3, CV_32F);
+
 }
 
 /* plugin init */
