@@ -30,46 +30,48 @@ gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuff
     GstMapInfo in_map, out_map;
     gst_buffer_map(inbuf, &in_map, GST_MAP_READ);
     gst_buffer_map(outbuf, &out_map, GST_MAP_WRITE);
-
+    gst_buffer_peek_memory(inbuf, 0);
     NvBufSurface *in_surface = (NvBufSurface*)in_map.data;
 
-    NvBufSurfaceMap(in_surface, 0, 0, NVBUF_MAP_READ);
-    NvBufSurfaceSyncForCpu(in_surface, 0, 0);
+    NvBufSurfaceMap(in_surface, -1, -1, NVBUF_MAP_READ);
+    NvBufSurfaceSyncForCpu(in_surface, -1, -1);
 
     auto frame = in_surface->surfaceList[0].dataPtr;
+    
     if (!frame) {
         g_print("Failed to get frame data from NvBufSurface\n");
+            g_print("Failed to get frame data from NvBufSurface\n");NvBufSurfaceUnMap(in_surface, -1, -1);
+
         gst_buffer_unmap(inbuf, &in_map);
         gst_buffer_unmap(outbuf, &out_map);
         return GST_FLOW_ERROR;
     }
 
+    g_print("Batch size: %u\n", in_surface->batchSize);
+    g_print("memory type: %d\n", in_surface->memType);
+
     g_print("Frame size: %dX%d\n", in_surface->surfaceList[0].width, in_surface->surfaceList[0].height);
-    
+    g_print("Frame pitch: %d\n", in_surface->surfaceList[0].pitch);
+    g_print("Frame color format: %d\n", in_surface->surfaceList[0].colorFormat);
+    g_print("Frame data size: %d\n", in_surface->surfaceList[0].dataSize);
+    g_print("Number of planes: %d\n", in_surface->surfaceList[0].planeParams.num_planes);
+
     int width = in_surface->surfaceList[0].width;
     int height = in_surface->surfaceList[0].height;
     int pitch = in_surface->surfaceList[0].pitch;
-    uchar *y_ptr = (uchar*)in_surface->surfaceList[0].dataPtr;
+    uchar *y_ptr = (uchar*)in_surface->surfaceList[0].mappedAddr.addr[0];
 
-    cv::cuda::GpuMat y_gpu(height, width, CV_8UC1, y_ptr, pitch);
-    g_print("Y plane size: %dX%d, pitch: %ld\n", y_gpu.rows, y_gpu.cols, y_gpu.step);
-    // For NV12, UV plane starts after Y plane (height * pitch bytes)
-    uchar *uv_ptr = y_ptr + height * pitch;
-    // UV plane is half the height of Y, and width is the same pitch
-    cv::cuda::GpuMat uv_gpu(height / 2, width, CV_8UC1, uv_ptr, pitch);
-
-    // Download Y plane from GPU and save as PNG
-    cv::Mat y_cpu(height, width, CV_8UC1, y_ptr, pitch);
+    cv::Mat y_cpu = cv::Mat(height, width, CV_8UC1, y_ptr, pitch);
     
     cv::Mat y_contig;
     y_cpu.copyTo(y_contig);
     
     std::string y_path = "./frame/y.png";
     cv::imwrite(y_path, y_contig);
-
+    
     memcpy(out_map.data, in_map.data, in_map.size);
 
-    NvBufSurfaceUnMap(in_surface, 0, 0);
+    NvBufSurfaceUnMap(in_surface, -1, -1);
     gst_buffer_unmap(inbuf, &in_map);
     gst_buffer_unmap(outbuf, &out_map);
     return GST_FLOW_OK;
