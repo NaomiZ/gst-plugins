@@ -62,6 +62,73 @@ static void save_y_plane_from_surface_to_host(NvBufSurface *surface) {
 
 }
 
+bool NvBufSurfaceToGpuMat(NvBufSurface* surf, int batch_index, cv::cuda::GpuMat &output) {
+    cudaError_t err;
+    cudaGraphicsResource *cudaResource = nullptr;
+
+    // 1. Map the NvBufSurface to EGLImage
+    if (NvBufSurfaceMapEglImage(surf, batch_index) != 0) {
+        fprintf(stderr, "Failed to map EGLImage\n");
+        return false;
+    }
+    EGLImageKHR eglImage = surf->surfaceList[batch_index].mappedAddr.eglImage;
+
+    // 2. Register EGLImage with CUDA
+    err = cudaGraphicsEGLRegisterImage(&cudaResource, eglImage, cudaGraphicsRegisterFlagsReadOnly);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaGraphicsEGLRegisterImage failed: %s\n", cudaGetErrorString(err));
+        NvBufSurfaceUnMapEglImage(surf, batch_index);
+        return false;
+    }
+
+    // 3. Map CUDA resource
+    err = cudaGraphicsMapResources(1, &cudaResource, 0);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaGraphicsMapResources failed: %s\n", cudaGetErrorString(err));
+        cudaGraphicsUnregisterResource(cudaResource);
+        NvBufSurfaceUnMapEglImage(surf, batch_index);
+        return false;
+    }
+
+    // 4. Get cudaArray from resource
+    cudaArray_t cudaArray;
+    err = cudaGraphicsSubResourceGetMappedArray(&cudaArray, cudaResource, 0, 0);
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaGraphicsSubResourceGetMappedArray failed: %s\n", cudaGetErrorString(err));
+        cudaGraphicsUnmapResources(1, &cudaResource, 0);
+        cudaGraphicsUnregisterResource(cudaResource);
+        NvBufSurfaceUnMapEglImage(surf, batch_index);
+        return false;
+    }
+
+    // 5. Allocate output GpuMat (Y plane only, assuming NV12)
+    int width  = surf->surfaceList[batch_index].width;
+    int height = surf->surfaceList[batch_index].height;
+    output.create(height, width, CV_8UC1);
+
+    // 6. Copy from cudaArray to GpuMat
+    err = cudaMemcpy2DFromArray(
+        output.data, output.step,
+        cudaArray, 0, 0,
+        width, height,
+        cudaMemcpyDeviceToDevice
+    );
+    if (err != cudaSuccess) {
+        fprintf(stderr, "cudaMemcpy2DFromArray failed: %s\n", cudaGetErrorString(err));
+        cudaGraphicsUnmapResources(1, &cudaResource, 0);
+        cudaGraphicsUnregisterResource(cudaResource);
+        NvBufSurfaceUnMapEglImage(surf, batch_index);
+        return false;
+    }
+
+    // 7. Cleanup
+    cudaGraphicsUnmapResources(1, &cudaResource, 0);
+    cudaGraphicsUnregisterResource(cudaResource);
+    NvBufSurfaceUnMapEglImage(surf, batch_index);
+
+    return true;
+}
+
 /* transform function */
 static GstFlowReturn
 gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuffer *outbuf) {
@@ -74,32 +141,37 @@ gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuff
 
   
   NvBufSurface *in_surface = (NvBufSurface*)in_map.data;
+  NvBufSurfaceMap(in_surface, -1, -1, NVBUF_MAP_READ);
+  NvBufSurfaceSyncForDevice(in_surface, -1, -1);
 
-  auto frame = in_surface->surfaceList[0].dataPtr;
-  
+  //TODO: validate in_surface->surfaceList[0]
+  void* frame = in_surface->surfaceList[0].dataPtr;
+  uint32_t width = in_surface->surfaceList[0].width;
+  uint32_t height = in_surface->surfaceList[0].height;
+  uint32_t pitch = in_surface->surfaceList[0].pitch;
+  uint32_t frame_size = in_surface->surfaceList[0].dataSize;
+
   if (!frame) {
-      g_print("Failed to get frame data from NvBufSurface\n");
+    g_print("Failed to get frame data from NvBufSurface\n");
 
-      gst_buffer_unmap(inbuf, &in_map);
-      gst_buffer_unmap(outbuf, &out_map);
-      return GST_FLOW_ERROR;
-    }
-    
-  int width = in_surface->surfaceList[0].width;
-  int height = in_surface->surfaceList[0].height;
-  int pitch = in_surface->surfaceList[0].pitch;
-  uchar *y_d_ptr = (uchar*)in_surface->surfaceList[0].dataPtr;
-
-  cv::cuda::GpuMat d_gray(height, width, CV_8UC1, y_d_ptr, pitch);
+    gst_buffer_unmap(inbuf, &in_map);
+    gst_buffer_unmap(outbuf, &out_map);
+    return GST_FLOW_ERROR;
+  }
+  cv::cuda::GpuMat d_gray;
 
   if (self->first_frame) {
-    g_print("Processing first frame...\n");
-    //FIXME: initilize prev_gray before use.
-    // d_gray.copyTo(self->prev_gray);
+    // You already have almost identical function save_y_plane_from_surface_to_host()
+    g_print("Processing first frame...\n");    
+    cv::Mat h_frame;
+    d_gray.download(h_frame);
+    cv::imwrite("./frame/h.png", h_frame);
     self->first_frame = FALSE;
   }
   
   memcpy(out_map.data, in_map.data, in_map.size);
+
+  NvBufSurfaceUnMap(in_surface, -1, -1);
 
   gst_buffer_unmap(inbuf, &in_map);
   gst_buffer_unmap(outbuf, &out_map);
