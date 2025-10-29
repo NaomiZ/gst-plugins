@@ -1,0 +1,3 @@
+[submodule "processing-libs/video-stab"]
+	path = processing-libs/video-stab
+	url = https://github.com/NaomiZ/video-stab.git
