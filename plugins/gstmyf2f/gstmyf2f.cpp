@@ -15,6 +15,7 @@ typedef struct _GstMyF2F {
   GstBaseTransform parent;
 
   gchar* config_path;
+  gchar* processing_lib_config_path;
   std::unordered_map<std::string, std::string> config_kv;
   std::mutex config_mutex;
 
@@ -31,6 +32,9 @@ G_DEFINE_TYPE (GstMyF2F, gst_myf2f, GST_TYPE_BASE_TRANSFORM);
 enum {
   PROP_0 = 0,
   PROP_CONFIG_PATH,
+  PROP_PROCESSING_LIB_CONFIG_PATH,
+  PROP_CONFIG_MUTEX,
+  PROP_DEBUG_FIRST_RUN,
 };
 
 static void gst_myf2f_set_property(GObject* object, guint prop_id, const GValue* value, GParamSpec* pspec) {
@@ -41,6 +45,21 @@ static void gst_myf2f_set_property(GObject* object, guint prop_id, const GValue*
       std::lock_guard<std::mutex> lock(self->config_mutex);
       g_free(self->config_path);
       self->config_path = p ? g_strdup(p) : nullptr;
+      break;
+    }
+    case PROP_PROCESSING_LIB_CONFIG_PATH: {
+      const gchar* p = g_value_get_string(value);
+      std::lock_guard<std::mutex> lock(self->config_mutex);
+      g_free(self->processing_lib_config_path);
+      self->processing_lib_config_path = p ? g_strdup(p) : nullptr;
+      break;
+    }
+    case PROP_CONFIG_MUTEX: {
+      // Mutex is not settable via GObject property, ignore or warn
+      break;
+    }
+    case PROP_DEBUG_FIRST_RUN: {
+      self->printed_once.store(g_value_get_boolean(value), std::memory_order_relaxed);
       break;
     }
     default:
@@ -54,6 +73,16 @@ static void gst_myf2f_get_property(GObject* object, guint prop_id, GValue* value
     case PROP_CONFIG_PATH:
       g_value_set_string(value, self->config_path);
       break;
+    case PROP_PROCESSING_LIB_CONFIG_PATH:
+      g_value_set_string(value, self->processing_lib_config_path);
+      break;
+    case PROP_CONFIG_MUTEX:
+      // Return pointer as a ulong for debug, not typical usage
+      g_value_set_ulong(value, (gulong)&self->config_mutex);
+      break;
+    case PROP_DEBUG_FIRST_RUN:
+      g_value_set_boolean(value, self->printed_once.load(std::memory_order_relaxed));
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID(object, prop_id, pspec);
   }
@@ -64,6 +93,8 @@ static void gst_myf2f_finalize(GObject* object) {
   std::lock_guard<std::mutex> lock(self->config_mutex);
   g_free(self->config_path);
   self->config_path = nullptr;
+  g_free(self->processing_lib_config_path);
+  self->processing_lib_config_path = nullptr;
   G_OBJECT_CLASS(gst_myf2f_parent_class)->finalize(object);
 }
 
@@ -161,6 +192,32 @@ static void gst_myf2f_class_init(GstMyF2FClass* klass) {
                           nullptr,
                           (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
 
+  g_object_class_install_property(
+      gobject_class, PROP_PROCESSING_LIB_CONFIG_PATH,
+      g_param_spec_string("processing-lib-config-path",
+                          "Processing lib config file path",
+                          "Path to processing library config file",
+                          nullptr,
+                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
+  g_object_class_install_property(
+      gobject_class, PROP_CONFIG_MUTEX,
+      g_param_spec_ulong("config-mutex",
+                         "Config mutex pointer",
+                         "Pointer to config mutex (for debug only)",
+                         0,
+                         G_MAXULONG,
+                         0,
+                         (GParamFlags)(G_PARAM_READABLE | G_PARAM_STATIC_STRINGS)));
+
+  g_object_class_install_property(
+      gobject_class, PROP_DEBUG_FIRST_RUN,
+      g_param_spec_boolean("debug-first-run",
+                          "Debug first run indication",
+                          "Indicates if first run debug message was printed",
+                          FALSE,
+                          (GParamFlags)(G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS)));
+
   gst_element_class_set_static_metadata(
       gstelement_class,
       "My Frame2Frame (in-place) filter",
@@ -192,6 +249,7 @@ static void gst_myf2f_class_init(GstMyF2FClass* klass) {
 
 static void gst_myf2f_init(GstMyF2F* self) {
   self->config_path = nullptr;
+  self->processing_lib_config_path = nullptr;
   self->printed_once.store(false, std::memory_order_relaxed);
 }
 
