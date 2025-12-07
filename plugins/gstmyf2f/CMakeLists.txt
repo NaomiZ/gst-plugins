@@ -18,7 +18,9 @@ pkg_check_modules(GST REQUIRED gstreamer-1.0 gstreamer-base-1.0)
 set(SOURCES gstmyf2f.cpp)
 add_library(gstmyf2f SHARED ${SOURCES})
 
-target_include_directories(gstmyf2f PRIVATE ${GST_INCLUDE_DIRS})
+set(VP_API_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/../../processing-libs/)
+message("VP_API_INCLUDE_DIR: ${VP_API_INCLUDE_DIR}")
+target_include_directories(gstmyf2f PRIVATE ${GST_INCLUDE_DIRS} ${VP_API_INCLUDE_DIR})
 target_link_libraries(gstmyf2f ${GST_LIBRARIES})
 
 # GStreamer expects libgst<name>.so
