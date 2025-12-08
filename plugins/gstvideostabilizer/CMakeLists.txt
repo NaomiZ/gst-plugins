@@ -8,7 +8,7 @@ find_package(OpenCV REQUIRED)
 
 # TODO: set an environment variable for DeepStream paths in bootup scripts
 set(DEEPSTREAM_INCLUDE_DIRS "/opt/nvidia/deepstream/deepstream/sources/includes")
-set (DEEPSTREAM_LIBRARY_DIRS "/opt/nvidia/deepstream/deepstream/lib")
+set(DEEPSTREAM_LIBRARY_DIRS "/opt/nvidia/deepstream/deepstream/lib")
 
 include_directories(
     ${GST_INCLUDE_DIRS}

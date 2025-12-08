@@ -20,7 +20,6 @@ typedef enum {
     PROC_PIXFMT_GRAY8   = 1,
     PROC_PIXFMT_RGB24   = 2,
     PROC_PIXFMT_RGBA32  = 3
-    /* add more as needed */
 } ProcPixelFormat;
 
 typedef struct {
@@ -28,8 +27,6 @@ typedef struct {
     int height;             /* nominal frame height (pixels) */
     ProcPixelFormat pixfmt; /* expected pixel format */
     const char* config_path;
-
-//    int reserved[4];
 } VP_Config;
 
 typedef struct {
@@ -57,9 +54,6 @@ typedef struct ProcessorAPI {
 
     /* Destroy a processor instance created by init(). */
     void (*destroy)(void* ctx);
-
-    /* Room for future extension without breaking ABI */
-    void* reserved[4];
 } ProcessorAPI;
 
 ProcStatus proc_register(ProcessorAPI* api);

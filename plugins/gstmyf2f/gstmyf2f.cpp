@@ -1,7 +1,7 @@
 #include <gst/gst.h>
 #include <gst/base/gstbasetransform.h>
 #include <gst/video/video.h>
-
+#include <yaml-cpp/yaml.h>
 #include <atomic>
 #include <fstream>
 #include <mutex>
@@ -53,7 +53,6 @@ static void gst_myf2f_set_property(GObject* object, guint prop_id, const GValue*
     case PROP_CONFIG_PATH: {
       const gchar* p = g_value_get_string(value);
       std::lock_guard<std::mutex> lock(self->config_mutex);
-      g_free(self->config_path);
       self->config_path = p ? g_strdup(p) : nullptr;
       break;
     }
@@ -145,20 +144,20 @@ static void parse_config_file(GstMyF2F* self) {
     return;
   }
 
+  // Use yaml-cpp for YAML parsing
   std::unordered_map<std::string, std::string> config_map;
-  std::string line;
-  while (std::getline(f, line)) {
-    auto pos = line.find('=');
-    if (pos == std::string::npos || pos == 0)
-      continue;
-    std::string key = line.substr(0, pos);
-    std::string value = line.substr(pos + 1);
-    // Trim whitespace
-    key.erase(0, key.find_first_not_of(" \t\r\n"));
-    key.erase(key.find_last_not_of(" \t\r\n") + 1);
-    value.erase(0, value.find_first_not_of(" \t\r\n"));
-    value.erase(value.find_last_not_of(" \t\r\n") + 1);
-    config_map[key] = value;
+  try {
+    YAML::Node config = YAML::Load(f);
+    for (YAML::const_iterator it = config.begin(); it != config.end(); ++it) {
+      std::string key = it->first.as<std::string>();
+      std::string value = it->second.as<std::string>();
+      config_map[key] = value;
+      g_print("Config: '%s' = '%s'\n", key.c_str(), value.c_str());
+    }
+  } catch (const std::exception& e) {
+    GST_WARNING_OBJECT(self, "YAML parsing error: %s", e.what());
+    g_free(config_path_copy);
+    return;
   }
 
   // Set properties based on config_map
