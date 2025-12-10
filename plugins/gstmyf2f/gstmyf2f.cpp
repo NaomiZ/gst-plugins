@@ -301,6 +301,14 @@ static gboolean gst_myf2f_set_caps(GstBaseTransform* base, GstCaps* incaps, GstC
 
     const gchar *fmt = gst_structure_get_string(s, "format");
     if (!fmt) return FALSE;
+    if (g_str_equal(fmt, "NV12") || g_str_equal(fmt, "I420")) {
+        self->pixel_format = PROC_PIXFMT_NV12;
+    } else if (g_str_equal(fmt, "RGB")) {
+        self->pixel_format = PROC_PIXFMT_RGB;
+    } else {
+        GST_ERROR_OBJECT(self, "Unsupported pixel format: %s", fmt);
+        return FALSE;
+    }
 
     GST_INFO_OBJECT(self, "Negotiated caps: %dx%d format=%s",
                     self->width, self->height, fmt);
