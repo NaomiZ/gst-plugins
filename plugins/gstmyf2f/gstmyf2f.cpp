@@ -27,6 +27,10 @@ typedef struct _GstMyF2F {
   gchar* processing_lib_path;
   std::mutex config_mutex;
 
+  int width;
+  int height;
+  ProcPixelFormat pixel_format;
+
   std::atomic<bool> printed_once;
   DispatcherContext* dispatcher;
 } GstMyF2F;
@@ -242,15 +246,7 @@ static gboolean gst_myf2f_start(GstBaseTransform* base) {
     return FALSE;
   }
 
-  // 4) Call init() on the processor
-  VP_Config cfg;
-  cfg.width = 0;                      // For now; can be filled from caps later
-  cfg.height = 0;
-  cfg.pixfmt = PROC_PIXFMT_UNKNOWN;
-  cfg.config_path = lib_cfg_path_copy;     // may be NULL
-
-  st = d->api.init(&cfg, &d->processor_ctx); // FIXME: Should i pass configuration file only? 
-  
+  st = d->api.init(lib_cfg_path_copy, &d->processor_ctx);
   g_free(lib_cfg_path_copy);
   g_free(lib_path_copy);
 
@@ -290,9 +286,29 @@ static gboolean gst_myf2f_stop(GstBaseTransform* base) {
 }
 
 // ---------- Caps ----------
-static gboolean gst_myf2f_set_caps(GstBaseTransform* /*base*/, GstCaps* incaps, GstCaps* outcaps) {
-  GST_DEBUG("Negotiated caps: in=%" GST_PTR_FORMAT " out=%" GST_PTR_FORMAT, incaps, outcaps);
-  return TRUE;
+static gboolean gst_myf2f_set_caps(GstBaseTransform* base, GstCaps* incaps, GstCaps* outcaps) {
+      GstMyF2F *self = (GstMyF2F*)base;
+
+    if (!incaps) {
+        GST_ERROR_OBJECT(self, "Incoming caps are NULL");
+        return FALSE;
+    }
+
+    GstStructure *s = gst_caps_get_structure (incaps, 0);
+
+    gst_structure_get_int(s, "width",  &self->width);
+    gst_structure_get_int(s, "height", &self->height);
+
+    const gchar *fmt = gst_structure_get_string(s, "format");
+    if (!fmt) return FALSE;
+
+    GST_INFO_OBJECT(self, "Negotiated caps: %dx%d format=%s",
+                    self->width, self->height, fmt);
+
+    g_print("[gstmyf2f] set_caps: width=%d height=%d format=%s\n",
+            self->width, self->height, fmt);
+
+    return TRUE;
 }
 
 // ---------- Transform (in-place) ----------
@@ -316,12 +332,12 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
     return GST_FLOW_ERROR;
   }
 
-  // For demo: no real width/height/stride yet; treat whole buffer as linear
   VP_FrameIn in_frame;
-  in_frame.width  = 0;          // can be filled from caps later
-  in_frame.height = 0;
-  in_frame.stride = 0;
+  in_frame.width  = self->width;          // can be filled from caps later
+  in_frame.height = self->height;
+  in_frame.stride = self->width;
   in_frame.data   = map.data;
+  in_frame.pixfmt = self->pixel_format;
 
   VP_FrameOut out_frame;
   out_frame.width  = in_frame.width;

@@ -17,22 +17,15 @@ typedef enum {
 
 typedef enum {
     PROC_PIXFMT_UNKNOWN = 0,
-    PROC_PIXFMT_GRAY8   = 1,
-    PROC_PIXFMT_RGB24   = 2,
-    PROC_PIXFMT_RGBA32  = 3
+    PROC_PIXFMT_NV12,
+    PROC_PIXFMT_RGB
 } ProcPixelFormat;
-
-typedef struct {
-    int width;              /* nominal frame width  (pixels) */
-    int height;             /* nominal frame height (pixels) */
-    ProcPixelFormat pixfmt; /* expected pixel format */
-    const char* config_path;
-} VP_Config;
 
 typedef struct {
     int width;
     int height;
     int stride;              /* bytes per row */
+    ProcPixelFormat pixfmt;
     const uint8_t* data;     /* read-only input buffer */
 } VP_FrameIn;
 
@@ -41,11 +34,12 @@ typedef struct {
     int height;
     int stride;              /* bytes per row */
     uint8_t* data;           /* caller-allocated output buffer */
+    ProcPixelFormat pixfmt;
 } VP_FrameOut;
 
 typedef struct ProcessorAPI {
     /* Create a new processor instance. The implementation allocates *ctx. */
-    ProcStatus (*init)(const VP_Config* cfg, void** ctx);
+    ProcStatus (*init)(const char* config_path, void** ctx);
 
     /* Process one frame. ctx is the instance state. */
     ProcStatus (*process)(void* ctx,
