@@ -340,21 +340,15 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
     return GST_FLOW_ERROR;
   }
 
-  VP_FrameIn in_frame;
-  in_frame.width  = self->width;          // can be filled from caps later
-  in_frame.height = self->height;
-  in_frame.stride = self->width;
-  in_frame.data   = map.data;
-  in_frame.pixfmt = self->pixel_format;
-
-  VP_FrameOut out_frame;
-  out_frame.width  = in_frame.width;
-  out_frame.height = in_frame.height;
-  out_frame.stride = in_frame.stride;
-  out_frame.data   = map.data;  // in-place
+  VP_Frame frame;
+  frame.width  = self->width;          // can be filled from caps later
+  frame.height = self->height;
+  frame.stride = self->width;
+  frame.data   = map.data;
+  frame.pixfmt = self->pixel_format;
 
   ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx,
-                                                &in_frame, &out_frame);
+                                                &frame);
 
   gst_buffer_unmap(buf, &map);
 

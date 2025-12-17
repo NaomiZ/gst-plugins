@@ -120,9 +120,7 @@ The plugin **never** inspects or modifies `ctx`.
 
 The API provides:
 
-* **`VP_Config`** — POD structure describing processor configuration
-* **`VP_FrameIn`** — a read-only view of an input frame
-* **`VP_FrameOut`** — a writable view for output
+**`VP_Frame`** — representing the current frame
 * **`ProcPixelFormat`** — enumeration of supported pixel formats
 * **`ProcStatus`** — standard return codes
 
