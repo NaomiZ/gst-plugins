@@ -341,7 +341,7 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
   }
 
   VP_Frame frame;
-  frame.width  = self->width;          // can be filled from caps later
+  frame.width  = self->width;
   frame.height = self->height;
   frame.stride = self->width;
   frame.data   = map.data;
