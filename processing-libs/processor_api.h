@@ -26,7 +26,7 @@ typedef struct {
     int height;
     int stride;              /* bytes per row */
     ProcPixelFormat pixfmt;
-    const uint8_t* data;     /* read-only input buffer */
+    uint8_t* data;
 } VP_Frame;
 
 typedef struct ProcessorAPI {
