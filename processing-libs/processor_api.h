@@ -12,7 +12,9 @@ typedef enum {
     PROC_STATUS_ERR_GENERAL = -1,
     PROC_STATUS_ERR_CONFIG  = -2,
     PROC_STATUS_ERR_ALLOC   = -3,
-    PROC_STATUS_ERR_RUNTIME = -4
+    PROC_STATUS_ERR_RUNTIME = -4,
+    PROC_STATUS_ERR_UNSUPPORTED = -5,
+    PROC_STATUS_ERR_NOMEM   = -6
 } ProcStatus;
 
 typedef enum {
