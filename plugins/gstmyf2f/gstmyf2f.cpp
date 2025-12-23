@@ -322,7 +322,7 @@ static gboolean gst_myf2f_set_caps(GstBaseTransform* base, GstCaps* incaps, GstC
 // ---------- Transform (in-place) ----------
 //FIXME: should i implement transform() instead?
 static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* buf) {
- auto* self = (GstMyF2F*)base;
+  auto* self = (GstMyF2F*)base;
 
   if (!self->dispatcher || !self->dispatcher->processor_ctx) {
     GST_ERROR_OBJECT(self, "Dispatcher or processor context not initialized.");
@@ -347,8 +347,7 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
   frame.data   = map.data;
   frame.pixfmt = self->pixel_format;
 
-  ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx,
-                                                &frame);
+  ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx, &frame);
 
   gst_buffer_unmap(buf, &map);
 
