@@ -20,10 +20,14 @@ find_package(yaml-cpp CONFIG REQUIRED)
 set(SOURCES gstmyf2f.cpp)
 add_library(gstmyf2f SHARED ${SOURCES})
 
+set(DEEPSTREAM_INCLUDE_DIRS "/opt/nvidia/deepstream/deepstream/sources/includes")
+set(DEEPSTREAM_LIBRARY_DIRS "/opt/nvidia/deepstream/deepstream/lib")
+
 set(VP_API_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/../../processing-libs/)
 message("VP_API_INCLUDE_DIR: ${VP_API_INCLUDE_DIR}")
-target_include_directories(gstmyf2f PRIVATE ${GST_INCLUDE_DIRS} ${VP_API_INCLUDE_DIR})
-target_link_libraries(gstmyf2f ${GST_LIBRARIES} yaml-cpp::yaml-cpp)
+target_include_directories(gstmyf2f PRIVATE ${GST_INCLUDE_DIRS} ${VP_API_INCLUDE_DIR} ${DEEPSTREAM_INCLUDE_DIRS})
+target_link_directories(gstmyf2f PRIVATE ${DEEPSTREAM_LIBRARY_DIRS})
+target_link_libraries(gstmyf2f ${GST_LIBRARIES} yaml-cpp::yaml-cpp nvbufsurface)
 
 # GStreamer expects libgst<name>.so
 set_target_properties(gstmyf2f PROPERTIES OUTPUT_NAME ${PROJECT_NAME})

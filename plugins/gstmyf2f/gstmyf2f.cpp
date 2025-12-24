@@ -8,6 +8,7 @@
 #include <string>
 #include <unordered_map>
 #include <dlfcn.h>
+#include <nvbufsurface.h>
 #include "processor_api.h"
 
 #define GST_CAT_DEFAULT gst_myf2f_debug
@@ -319,9 +320,8 @@ static gboolean gst_myf2f_set_caps(GstBaseTransform* base, GstCaps* incaps, GstC
     return TRUE;
 }
 
-// ---------- Transform (in-place) ----------
-//FIXME: should i implement transform() instead?
-static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* buf) {
+// ---------- Transform (non-in-place with separate input/output buffers) ----------
+static GstFlowReturn gst_myf2f_transform(GstBaseTransform* base, GstBuffer* inbuf, GstBuffer* outbuf) {
   auto* self = (GstMyF2F*)base;
 
   if (!self->dispatcher || !self->dispatcher->processor_ctx) {
@@ -331,25 +331,66 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
 
   // Debug print once
   if (!self->printed_once.exchange(true, std::memory_order_acq_rel)) {
-    g_print("[gstmyf2f] transform_ip: dispatching to processing lib\n");
+    g_print("[gstmyf2f] transform: dispatching to processing lib (non-in-place mode)\n");
   }
 
-  GstMapInfo map;
-  if (!gst_buffer_map(buf, &map, GST_MAP_READWRITE)) {
-    GST_ERROR_OBJECT(self, "Failed to map buffer.");
+  // Map input buffer (READ only)
+  GstMapInfo map_in;
+  if (!gst_buffer_map(inbuf, &map_in, GST_MAP_READ)) {
+    GST_ERROR_OBJECT(self, "Failed to map input buffer.");
     return GST_FLOW_ERROR;
   }
 
-  VP_Frame frame;
-  frame.width  = self->width;
-  frame.height = self->height;
-  frame.stride = self->width;
-  frame.data   = map.data;
-  frame.pixfmt = self->pixel_format;
+  // Map output buffer (WRITE only)
+  GstMapInfo map_out;
+  if (!gst_buffer_map(outbuf, &map_out, GST_MAP_WRITE)) {
+    gst_buffer_unmap(inbuf, &map_in);
+    GST_ERROR_OBJECT(self, "Failed to map output buffer.");
+    return GST_FLOW_ERROR;
+  }
 
-  ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx, &frame);
+  // Map NVMM surfaces
+  NvBufSurface *in_surface = (NvBufSurface*)map_in.data;
+  NvBufSurface *out_surface = (NvBufSurface*)map_out.data;
+  
+  // Use NvBufSurfaceCopy for proper NVMM buffer copy (handles GPU memory)
+  if (NvBufSurfaceCopy(in_surface, out_surface) != 0) {
+    gst_buffer_unmap(outbuf, &map_out);
+    gst_buffer_unmap(inbuf, &map_in);
+    GST_ERROR_OBJECT(self, "Failed to copy NVMM surface");
+    return GST_FLOW_ERROR;
+  }
 
-  gst_buffer_unmap(buf, &map);
+  // Now map for processing
+  NvBufSurfaceMap(in_surface, -1, -1, NVBUF_MAP_READ);
+  NvBufSurfaceMap(out_surface, -1, -1, NVBUF_MAP_WRITE);
+  NvBufSurfaceSyncForCpu(in_surface, 0, 0);
+  NvBufSurfaceSyncForCpu(out_surface, 0, 0);
+  
+  // Setup input frame
+  VP_Frame in_frame;
+  in_frame.width  = self->width;
+  in_frame.height = self->height;
+  in_frame.stride = self->width;
+  in_frame.data   = in_surface->surfaceList[0].mappedAddr.addr[0];
+  in_frame.pixfmt = self->pixel_format;
+
+  // Setup output frame
+  VP_Frame out_frame;
+  out_frame.width  = self->width;
+  out_frame.height = self->height;
+  out_frame.stride = self->width;
+  out_frame.data   = out_surface->surfaceList[0].mappedAddr.addr[0];
+  out_frame.pixfmt = self->pixel_format;
+
+  // Call processing library with both frames
+  ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx, &in_frame, &out_frame);
+
+  // Unmap everything
+  NvBufSurfaceUnMap(out_surface, -1, -1);
+  NvBufSurfaceUnMap(in_surface, -1, -1);
+  gst_buffer_unmap(outbuf, &map_out);
+  gst_buffer_unmap(inbuf, &map_in);
 
   if (st != PROC_STATUS_OK) {
     GST_ERROR_OBJECT(self, "Processing lib returned error %d", st);
@@ -424,7 +465,7 @@ static void gst_myf2f_class_init(GstMyF2FClass* klass) {
   trans_class->start        = gst_myf2f_start;
   trans_class->stop         = gst_myf2f_stop;
   trans_class->set_caps     = gst_myf2f_set_caps;
-  trans_class->transform_ip = gst_myf2f_transform_ip;
+  trans_class->transform    = gst_myf2f_transform;  // Non-in-place mode
 
 //   gst_base_transform_class_set_in_place(trans_class, TRUE);
 //   gst_base_transform_class_set_passthrough_on_same_caps(trans_class, TRUE);

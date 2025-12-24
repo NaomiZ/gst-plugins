@@ -145,7 +145,7 @@ gst_video_stabilizer_transform(GstBaseTransform *base, GstBuffer *inbuf, GstBuff
   NvBufSurfaceSyncForDevice(in_surface, -1, -1);
 
   //TODO: validate in_surface->surfaceList[0]
-  void* frame = in_surface->surfaceList[0].dataPtr;
+  uint8_t* frame = in_surface->surfaceList[0].dataPtr;
   uint32_t width = in_surface->surfaceList[0].width;
   uint32_t height = in_surface->surfaceList[0].height;
   uint32_t pitch = in_surface->surfaceList[0].pitch;

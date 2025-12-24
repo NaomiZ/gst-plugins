@@ -1,0 +1,43 @@
+Implementation Summary for NV Stabilizer
+Context: Generic video processing GStreamer plugin (gstmyf2f) with dynamic library injection architecture. Processing libraries implement processor_api.h interface (init/process/destroy). The NV stabilizer uses NVIDIA VPI for hardware-accelerated optical flow.
+
+Implementation completed:
+
+Added includes to nv_stabilizer.cpp: <algorithm> for std::sort
+
+Extended NvStabCtx structure with:
+
+int estimated_dx, estimated_dy for computed motion
+Implemented nv_stab_compute_transform():
+
+Locks motion vector image from VPI (pitch-linear format)
+Collects all dx/dy values from dense optical flow grid
+Computes median dx/dy for robust global motion estimation
+Inverts motion (negative) for stabilization
+Unlocks image
+Implemented nv_stab_apply_transform():
+
+Currently disabled (returns OK without processing) due to NVMM memory allocation issues
+Original implementation had shift_plane() function for Y and UV planes
+TODO: Replace with VPI-based GPU warping
+Fixed frame management in nv_stab_process():
+
+Added frame swap logic: swaps cur_img_y and prev_img_y pointers after processing
+Ensures continuous optical flow computation between frames
+Passes frame parameter to apply_transform()
+Fixed bugs:
+
+Changed VPI image format from VPI_IMAGE_FORMAT_Y8_ER to VPI_IMAGE_FORMAT_Y8 (fixes conversion error)
+Changed delete c to free(c) in destroy function (fixes invalid pointer error)
+Re-added nv_vpi_submit_copy() helper function (was accidentally removed)
+GST plugin modifications in gstmyf2f.cpp:
+
+Simplified transform_ip to directly map NVMM buffers (no CPU copy)
+Works with both NVMM and CPU memory
+Current state:
+
+Optical flow computation fully working using VPI OFA hardware accelerator
+Motion estimation (median-based) working
+Frame transformation disabled to avoid NVMM memory issues
+Pipeline runs without crashes, computes motion vectors successfully
+Next step: Implement GPU-based warping with VPI instead of CPU shifting

@@ -28,16 +28,21 @@ typedef struct {
     int height;
     int stride;              /* bytes per row */
     ProcPixelFormat pixfmt;
-    uint8_t* data;
+    void* data;
 } VP_Frame;
 
 typedef struct ProcessorAPI {
     /* Create a new processor instance. The implementation allocates *ctx. */
     ProcStatus (*init)(const char* config_path, void** ctx);
 
-    /* Process one frame. ctx is the instance state. */
+    /* Process one frame. ctx is the instance state. 
+     * input: source frame data (read-only)
+     * output: destination frame data (write-only)
+     * For in-place processing, pass same frame as both input and output.
+     */
     ProcStatus (*process)(void* ctx,
-                          VP_Frame* frame);
+                          VP_Frame* input,
+                          VP_Frame* output);
 
     /* Destroy a processor instance created by init(). */
     void (*destroy)(void* ctx);

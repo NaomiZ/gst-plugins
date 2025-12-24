@@ -26,19 +26,28 @@ if [[ -d "$VPI_LIB_DIR" ]]; then
 	fi
 fi
 
-# Allow optional duration via --duration=SECONDS to auto-stop for tests
+# Allow optional duration via --duration=SECONDS or --frames=NUM to auto-stop for tests
 DURATION=""
+NUM_FRAMES=""
 for arg in "$@"; do
 	case "$arg" in
 		--duration=*) DURATION="${arg#*=}"; shift ;;
+		--frames=*) NUM_FRAMES="${arg#*=}"; shift ;;
 		*) ;;
 	esac
 done
 
 echo "Using GST_PLUGIN_PATH=${GST_PLUGIN_PATH:-<default>}"
 echo "Launching pipeline..."
+
+# Build v4l2src element with optional num-buffers
+V4L2_SRC="v4l2src device=/dev/video0 io-mode=dmabuf do-timestamp=true"
+if [[ -n "$NUM_FRAMES" ]]; then
+	V4L2_SRC="${V4L2_SRC} num-buffers=${NUM_FRAMES}"
+fi
+
 PIPE_COMMON=(
-	v4l2src device=/dev/video0 io-mode=dmabuf do-timestamp=true !
+	${V4L2_SRC} !
 	queue max-size-buffers=8 max-size-time=0 max-size-bytes=0 leaky=downstream !
 	nvvideoconvert copy-hw=2 disable-passthrough=true !
 	"video/x-raw(memory:NVMM),format=NV12,width=1280,height=1080,framerate=30/1" !
