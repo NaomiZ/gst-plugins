@@ -36,13 +36,10 @@ typedef struct ProcessorAPI {
     ProcStatus (*init)(const char* config_path, void** ctx);
 
     /* Process one frame. ctx is the instance state. 
-     * input: source frame data (read-only)
-     * output: destination frame data (write-only)
-     * For in-place processing, pass same frame as both input and output.
+     * For in-place processing, pass the same frame as input.
      */
     ProcStatus (*process)(void* ctx,
-                          VP_Frame* input,
-                          VP_Frame* output);
+                          VP_Frame* frame);
 
     /* Destroy a processor instance created by init(). */
     void (*destroy)(void* ctx);

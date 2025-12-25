@@ -371,7 +371,7 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
   frame.pixfmt = self->pixel_format;
 
   // Call processing library (processes in-place)
-  // ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx, &frame, &frame);
+  ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx, &frame);
   
   // Sync back to device before unmapping
   NvBufSurfaceSyncForDevice(surface, -1, -1);
