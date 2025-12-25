@@ -50,7 +50,7 @@ PIPE_COMMON=(
 	${V4L2_SRC} !
 	queue max-size-buffers=8 max-size-time=0 max-size-bytes=0 leaky=downstream !
 	nvvideoconvert copy-hw=2 disable-passthrough=true !
-	"video/x-raw(memory:NVMM),format=NV12,width=1280,height=1080,framerate=30/1" !
+	"video/x-raw(memory:NVMM),format=NV12,width=640,height=480,framerate=30/1" !
 	queue max-size-buffers=8 max-size-time=0 max-size-bytes=0 leaky=downstream !
 	myf2f config-path=/home/fronti/gst-plugins/plugins/gstmyf2f/resources/config-nv.yaml !
 	queue max-size-buffers=8 max-size-time=0 max-size-bytes=0 leaky=downstream !

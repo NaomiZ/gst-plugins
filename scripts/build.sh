@@ -10,3 +10,5 @@ cd /home/fronti/gst-plugins/processing-libs/video-stabilization/nv_stabilizer
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
+
+/home/fronti/gst-plugins/scripts/install.sh
