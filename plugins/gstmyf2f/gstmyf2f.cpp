@@ -331,14 +331,12 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
 
   // Debug print once
   if (!self->printed_once.exchange(true, std::memory_order_acq_rel)) {
-    fprintf(stderr, "[gstmyf2f] transform_ip: dispatching to processing lib (in-place mode)\n");
-    fflush(stderr);
+    // printf("[gstmyf2f] transform_ip: dispatching to processing lib (in-place mode)\n");
   }
   
   static int frame_count = 0;
   if (++frame_count % 30 == 0) {
-    fprintf(stderr, "[gstmyf2f] Processed %d frames\n", frame_count);
-    fflush(stderr);
+    // printf("[gstmyf2f] Processed %d frames\n", frame_count);
   }
 
   // Map buffer (READ/WRITE)
@@ -372,7 +370,7 @@ static GstFlowReturn gst_myf2f_transform_ip(GstBaseTransform* base, GstBuffer* b
 
   // Call processing library (processes in-place)
   ProcStatus st = self->dispatcher->api.process(self->dispatcher->processor_ctx, &frame);
-  
+
   // Sync back to device before unmapping
   NvBufSurfaceSyncForDevice(surface, -1, -1);
 
